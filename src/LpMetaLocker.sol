@@ -38,8 +38,18 @@ contract LpMetaLocker is Ownable, IERC721Receiver {
         uint256 lpTokenId;
     }
 
+    struct TeamFeeRecipient {
+        address recipient;
+        uint256 fee;
+        uint256 lpTokenId;
+    }
+
     UserFeeRecipient[] public _userFeeRecipients;
     mapping(uint256 => UserFeeRecipient) public _userFeeRecipientForToken;
+    mapping(uint256 => TeamFeeRecipient)
+        public _teamOverrideFeeRecipientForToken;
+
+    mapping(address => uint256[]) public _userTokenIds;
 
     constructor(
         address token, // Address of the ERC721 Uniswap V3 LP NFT
@@ -50,6 +60,18 @@ contract LpMetaLocker is Ownable, IERC721Receiver {
         e721Token = token;
         _clankerTeamFee = clankerTeamFee;
         _clankerTeamRecipient = clankerTeamRecipient;
+    }
+
+    function setOverrideTeamFeesForToken(
+        uint256 tokenId,
+        address newTeamRecipient,
+        uint256 newTeamFee
+    ) public onlyOwner {
+        _teamOverrideFeeRecipientForToken[tokenId] = TeamFeeRecipient({
+            recipient: newTeamRecipient,
+            fee: newTeamFee,
+            lpTokenId: tokenId
+        });
     }
 
     // Update the clanker team fee
@@ -119,8 +141,21 @@ contract LpMetaLocker is Ownable, IERC721Receiver {
         IERC20 feeToken0 = IERC20(token0);
         IERC20 feeToken1 = IERC20(token1);
 
-        uint256 protocolFee0 = (amount0 * _clankerTeamFee) / 100;
-        uint256 protocolFee1 = (amount1 * _clankerTeamFee) / 100;
+        address teamRecipient = _clankerTeamRecipient;
+        uint256 teamFee = _clankerTeamFee;
+
+        TeamFeeRecipient
+            memory overrideFeeRecipient = _teamOverrideFeeRecipientForToken[
+                _tokenId
+            ];
+
+        if (overrideFeeRecipient.recipient != address(0)) {
+            teamRecipient = overrideFeeRecipient.recipient;
+            teamFee = overrideFeeRecipient.fee;
+        }
+
+        uint256 protocolFee0 = (amount0 * teamFee) / 100;
+        uint256 protocolFee1 = (amount1 * teamFee) / 100;
 
         uint256 recipientFee0 = amount0 - protocolFee0;
         uint256 recipientFee1 = amount1 - protocolFee1;
@@ -128,8 +163,8 @@ contract LpMetaLocker is Ownable, IERC721Receiver {
         feeToken0.transfer(_recipient, recipientFee0);
         feeToken1.transfer(_recipient, recipientFee1);
 
-        feeToken0.transfer(_clankerTeamRecipient, protocolFee0);
-        feeToken1.transfer(_clankerTeamRecipient, protocolFee1);
+        feeToken0.transfer(teamRecipient, protocolFee0);
+        feeToken1.transfer(teamRecipient, protocolFee1);
 
         emit ClaimedFees(
             _recipient,
@@ -145,27 +180,7 @@ contract LpMetaLocker is Ownable, IERC721Receiver {
     function getLpTokenIdsForUser(
         address user
     ) public view returns (uint256[] memory) {
-        // First, count how many tokens this user has
-        uint256 userTokenCount = 0;
-        for (uint256 i = 0; i < _userFeeRecipients.length; i++) {
-            if (_userFeeRecipients[i].recipient == user) {
-                userTokenCount++;
-            }
-        }
-
-        // Create an array of the correct size
-        uint256[] memory tokenIds = new uint256[](userTokenCount);
-
-        // Fill the array with the user's token IDs
-        uint256 currentIndex = 0;
-        for (uint256 i = 0; i < _userFeeRecipients.length; i++) {
-            if (_userFeeRecipients[i].recipient == user) {
-                tokenIds[currentIndex] = _userFeeRecipients[i].lpTokenId;
-                currentIndex++;
-            }
-        }
-
-        return tokenIds;
+        return _userTokenIds[user];
     }
 
     function setUserFeeRecipients(
@@ -174,6 +189,9 @@ contract LpMetaLocker is Ownable, IERC721Receiver {
         _userFeeRecipients = recipients;
         for (uint256 i = 0; i < recipients.length; i++) {
             _userFeeRecipientForToken[recipients[i].lpTokenId] = recipients[i];
+            _userTokenIds[recipients[i].recipient].push(
+                recipients[i].lpTokenId
+            );
         }
     }
 
@@ -182,6 +200,7 @@ contract LpMetaLocker is Ownable, IERC721Receiver {
     ) public onlyOwner {
         _userFeeRecipients.push(recipient);
         _userFeeRecipientForToken[recipient.lpTokenId] = recipient;
+        _userTokenIds[recipient.recipient].push(recipient.lpTokenId);
     }
 
     function onERC721Received(

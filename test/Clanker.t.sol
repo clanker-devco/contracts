@@ -30,7 +30,6 @@ contract ClankerTest is Test {
     address not_proxystudio = makeAddr("not_proxystudio");
 
     address badBot = 0xB8E8d2a9b5D1FF8FEb4EFA686ac1D15Bf960070d;
-    address usdc = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
 
     string clankerImage =
         "https://assets.coingecko.com/coins/images/51440/standard/CLANKER.png?1731232869";
@@ -41,7 +40,7 @@ contract ClankerTest is Test {
     uint forkBlock = 23054702;
     string alchemyBase = "https://base-mainnet.g.alchemy.com/v2/";
 
-    address taxCollector = 0x053707B201385AE3421D450A1FF272952D2D6971;
+    address taxCollector = 0x04F6ef12a8B6c2346C8505eE4Cff71C43D2dd825;
     address weth = 0x4200000000000000000000000000000000000006;
     address swapRouter = 0x2626664c2603336E57B271c5C0b26F421741e481;
     address uniswapV3Factory = 0x33128a8fC17869897dcE68Ed026d694621f6FDfD;
@@ -49,8 +48,8 @@ contract ClankerTest is Test {
     address liquidityLocker;
     uint64 defaultLockingPeriod = 4132317178;
 
-    address currentClankerContract = 0x053707B201385AE3421D450A1FF272952D2D6971;
-    address clankerTeamEOA = 0x053707B201385AE3421D450A1FF272952D2D6971;
+    address currentClankerContract = 0x250c9FB2b411B48273f69879007803790A6AeA47;
+    address clankerTeamEOA = 0xE0c959EeDcFD004952441Ea4FB4B8f5af424e74B;
 
     address blondeLPLocker = 0xf4eFaFac1629274DECca0ba379a7c2a6A05fd3e0;
     uint256 blondeLPTokenId = 1223215;
@@ -167,7 +166,7 @@ contract ClankerTest is Test {
             proxystudio,
             proxystudio_fid,
             "proxystudio",
-            "WKND",
+            "PROXY",
             clankerImage,
             exampleCastHash,
             1 ether
@@ -314,7 +313,7 @@ contract ClankerTest is Test {
         vm.expectRevert("Invalid tick");
         clanker.deployToken(
             "proxystudio",
-            "WKND",
+            "PROXY",
             1 ether,
             1,
             10,
@@ -329,7 +328,7 @@ contract ClankerTest is Test {
         vm.expectRevert("Invalid salt");
         clanker.deployToken(
             "proxystudio",
-            "WKND",
+            "PROXY",
             1 ether,
             1,
             100,
@@ -347,7 +346,7 @@ contract ClankerTest is Test {
             proxystudio,
             proxystudio_fid,
             "proxystudio",
-            "WKND",
+            "PROXY",
             clankerImage,
             exampleCastHash,
             1 ether
@@ -359,7 +358,7 @@ contract ClankerTest is Test {
         vm.startPrank(clankerTeamEOA);
         clanker.deployToken(
             "proxystudio",
-            "WKND",
+            "PROXY",
             1 ether,
             1,
             100,
@@ -373,7 +372,7 @@ contract ClankerTest is Test {
         // All the token's data is correct
         ClankerToken tokenContract = ClankerToken(token);
         assertEq(tokenContract.name(), "proxystudio");
-        assertEq(tokenContract.symbol(), "WKND");
+        assertEq(tokenContract.symbol(), "PROXY");
         assertEq(tokenContract.totalSupply(), 1 ether);
         assertEq(tokenContract.deployer(), proxystudio);
         assertEq(tokenContract.fid(), proxystudio_fid);
@@ -389,14 +388,14 @@ contract ClankerTest is Test {
         assertEq(deployments[0].lpNftId, 1260053);
         assertEq(
             deployments[0].locker,
-            address(0xD6a6d2d1e2a5bbb95142b13001C67efEfA9df4cb)
+            address(0x92B69d134b81AC3a80833662D8199ee293f22B01)
         );
 
         // Cannot deploy again with the same salt
         vm.expectRevert();
         clanker.deployToken(
             "proxystudio",
-            "WKND",
+            "PROXY",
             1 ether,
             1,
             100,
@@ -414,7 +413,7 @@ contract ClankerTest is Test {
             proxystudio,
             proxystudio_fid,
             "proxystudio",
-            "WKND",
+            "PROXY",
             clankerImage,
             exampleCastHash,
             1 ether
@@ -432,7 +431,7 @@ contract ClankerTest is Test {
         // Deploy the token with value
         clanker.deployToken{value: 1 ether}(
             "proxystudio",
-            "WKND",
+            "PROXY",
             1 ether,
             1,
             100,
@@ -453,7 +452,7 @@ contract ClankerTest is Test {
             proxystudio,
             proxystudio_fid,
             "proxystudio",
-            "WKND",
+            "PROXY",
             clankerImage,
             exampleCastHash,
             1 ether
@@ -462,7 +461,7 @@ contract ClankerTest is Test {
         vm.expectRevert(Clanker.Deprecated.selector);
         clanker.deployToken(
             "proxystudio",
-            "WKND",
+            "PROXY",
             1 ether,
             1,
             100,
@@ -484,7 +483,7 @@ contract ClankerTest is Test {
         // Deploy a new token with value
         clanker.deployToken{value: 1}(
             "proxystudio",
-            "WKND",
+            "PROXY",
             1 ether,
             1,
             100,
@@ -508,7 +507,7 @@ contract ClankerTest is Test {
             proxystudio,
             proxystudio_fid,
             "proxystudio",
-            "WKND",
+            "PROXY",
             clankerImage,
             exampleCastHash,
             1 ether
@@ -517,7 +516,7 @@ contract ClankerTest is Test {
         // Doesnt revert because fee switch is off
         clanker.deployToken{value: 1}(
             "proxystudio",
-            "WKND",
+            "PROXY",
             1 ether,
             1,
             100,
@@ -536,7 +535,7 @@ contract ClankerTest is Test {
             proxystudio,
             proxystudio_fid,
             "proxystudio",
-            "WKND",
+            "PROXY",
             clankerImage,
             exampleCastHash,
             1 ether
@@ -546,7 +545,7 @@ contract ClankerTest is Test {
         vm.expectRevert("Failed to send protocol fees");
         clanker.deployToken{value: 1}(
             "proxystudio",
-            "WKND",
+            "PROXY",
             1 ether,
             1,
             100,
@@ -562,7 +561,7 @@ contract ClankerTest is Test {
         vm.expectRevert("Failed to send protocol fees");
         clanker.deployToken{value: 1}(
             "proxystudio",
-            "WKND",
+            "PROXY",
             1 ether,
             1,
             100,
@@ -585,7 +584,7 @@ contract ClankerTest is Test {
         // Generate the sale for a proxystudio coin
         (bytes32 salt, address token) = SocialDexDeployer(
             currentClankerContract
-        ).generateSalt(proxystudio, "proxystudio", "WKND", 1 ether);
+        ).generateSalt(proxystudio, "proxystudio", "PROXY", 1 ether);
 
         // Anyone can deploy the token technically, but if the clanker team deploys then we have a salt mismatch...
         vm.startPrank(clankerTeamEOA);
@@ -599,7 +598,7 @@ contract ClankerTest is Test {
         vm.expectRevert(bytes("Invalid salt"));
         SocialDexDeployer(currentClankerContract).deployToken(
             "proxystudio",
-            "WKND",
+            "PROXY",
             1 ether,
             1,
             100,
@@ -619,7 +618,7 @@ contract ClankerTest is Test {
             proxystudio,
             proxystudio_fid,
             "proxystudio",
-            "WKND",
+            "PROXY",
             clankerImage,
             exampleCastHash,
             1 ether
@@ -635,15 +634,15 @@ contract ClankerTest is Test {
             proxystudio,
             proxystudio_fid,
             "proxystudio",
-            "WKND",
+            "PROXY",
             1 ether,
-            address(0xD6a6d2d1e2a5bbb95142b13001C67efEfA9df4cb),
+            address(0x92B69d134b81AC3a80833662D8199ee293f22B01),
             exampleCastHash
         );
 
         clanker.deployToken(
             "proxystudio",
-            "WKND",
+            "PROXY",
             1 ether,
             1,
             100,
@@ -690,7 +689,7 @@ contract ClankerTest is Test {
             proxystudio,
             proxystudio_fid,
             "proxystudio",
-            "WKND",
+            "PROXY",
             clankerImage,
             exampleCastHash,
             1 ether
@@ -706,16 +705,16 @@ contract ClankerTest is Test {
             proxystudio,
             proxystudio_fid,
             "proxystudio",
-            "WKND",
+            "PROXY",
             1 ether,
-            address(0xD6a6d2d1e2a5bbb95142b13001C67efEfA9df4cb),
+            address(0x92B69d134b81AC3a80833662D8199ee293f22B01),
             exampleCastHash
         );
 
         vm.deal(clankerTeamEOA, 0.1 ether);
         clanker.deployToken{value: 0.1 ether}(
             "proxystudio",
-            "WKND",
+            "PROXY",
             1 ether,
             1,
             100,
@@ -745,7 +744,7 @@ contract ClankerTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(LpLocker.NotOwner.selector, proxystudio)
         );
-        LPLocker(0xD6a6d2d1e2a5bbb95142b13001C67efEfA9df4cb).collectFees(
+        LPLocker(0x92B69d134b81AC3a80833662D8199ee293f22B01).collectFees(
             proxystudio,
             1260053
         );
@@ -761,7 +760,7 @@ contract ClankerTest is Test {
 
         // proxystudio can claim fees
         vm.startPrank(proxystudio);
-        LPLocker(0xD6a6d2d1e2a5bbb95142b13001C67efEfA9df4cb).collectFees(
+        LPLocker(0x92B69d134b81AC3a80833662D8199ee293f22B01).collectFees(
             proxystudio,
             1260053
         );
@@ -790,7 +789,7 @@ contract ClankerTest is Test {
             proxystudio,
             proxystudio_fid,
             "proxystudio",
-            "WKND",
+            "PROXY",
             clankerImage,
             exampleCastHash,
             1 ether
@@ -805,16 +804,16 @@ contract ClankerTest is Test {
             proxystudio,
             proxystudio_fid,
             "proxystudio",
-            "WKND",
+            "PROXY",
             1 ether,
-            address(0xD6a6d2d1e2a5bbb95142b13001C67efEfA9df4cb),
+            address(0x92B69d134b81AC3a80833662D8199ee293f22B01),
             exampleCastHash
         );
 
         vm.deal(clankerTeamEOA, 0.1 ether);
         clanker.deployToken{value: 0.1 ether}(
             "proxystudio",
-            "WKND",
+            "PROXY",
             1 ether,
             1,
             100,
@@ -863,7 +862,7 @@ contract ClankerTest is Test {
         assertEq(deployments[0].lpNftId, 1260053);
         assertEq(
             deployments[0].locker,
-            address(0xD6a6d2d1e2a5bbb95142b13001C67efEfA9df4cb)
+            address(0x92B69d134b81AC3a80833662D8199ee293f22B01)
         );
         clanker.claimFees(token);
 

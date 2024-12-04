@@ -16,7 +16,7 @@ contract LpMetaLockerTest is Test {
     LpMetaLocker public lpMetaLocker;
 
     address proxystudio = 0x053707B201385AE3421D450A1FF272952D2D6971;
-    address baseUSDC = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
+    address baseWeth = 0x4200000000000000000000000000000000000006;
 
     uint baseFork;
     string alchemyBase = "https://base-mainnet.g.alchemy.com/v2/";
@@ -28,7 +28,7 @@ contract LpMetaLockerTest is Test {
     address positionManager = 0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1;
     address liquidityLocker;
 
-    address clankerTeamOriginalEOA = proxystudio;
+    address clankerTeamOriginalEOA = 0xC204af95b0307162118f7Bc36a91c9717490AB69;
     uint256 clankerTeamFee = 60;
 
     function setUp() public {
@@ -69,6 +69,15 @@ contract LpMetaLockerTest is Test {
             )
         );
         lpMetaLocker.updateClankerTeamRecipient(proxystudio);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Ownable.OwnableUnauthorizedAccount.selector,
+                proxystudio
+            )
+        );
+        lpMetaLocker.setOverrideTeamFeesForToken(1, proxystudio, 50);
+
         vm.stopPrank();
 
         // Recipient and fee are not updated
@@ -84,6 +93,17 @@ contract LpMetaLockerTest is Test {
         // Recipient and fee are updated
         assertEq(lpMetaLocker._clankerTeamFee(), 50);
         assertEq(lpMetaLocker._clankerTeamRecipient(), proxystudio);
+
+        vm.startPrank(clankerTeamOriginalEOA);
+        lpMetaLocker.setOverrideTeamFeesForToken(1, proxystudio, 50);
+        vm.stopPrank();
+
+        (address recipient, uint256 fee, uint256 lpTokenId) = lpMetaLocker
+            ._teamOverrideFeeRecipientForToken(1);
+
+        assertEq(recipient, proxystudio);
+        assertEq(fee, 50);
+        assertEq(lpTokenId, 1);
     }
 
     function test_withdrawAndReceive() public {
@@ -116,11 +136,11 @@ contract LpMetaLockerTest is Test {
 
         // Now send some ERC20 tokens to the contract
         vm.startPrank(proxystudio);
-        IERC20(baseUSDC).transfer(address(lpMetaLocker), 1);
+        IERC20(baseWeth).transfer(address(lpMetaLocker), 1);
         vm.stopPrank();
 
-        assertEq(IERC20(baseUSDC).balanceOf(address(lpMetaLocker)), 1);
-        uint256 balanceBeforeUSDC = IERC20(baseUSDC).balanceOf(
+        assertEq(IERC20(baseWeth).balanceOf(address(lpMetaLocker)), 1);
+        uint256 balanceBeforeUSDC = IERC20(baseWeth).balanceOf(
             clankerTeamOriginalEOA
         );
 
@@ -132,32 +152,35 @@ contract LpMetaLockerTest is Test {
                 proxystudio
             )
         );
-        lpMetaLocker.withdrawERC20(baseUSDC, proxystudio);
+        lpMetaLocker.withdrawERC20(baseWeth, proxystudio);
         vm.stopPrank();
 
-        assertEq(IERC20(baseUSDC).balanceOf(address(lpMetaLocker)), 1);
+        assertEq(IERC20(baseWeth).balanceOf(address(lpMetaLocker)), 1);
 
         vm.startPrank(clankerTeamOriginalEOA);
-        lpMetaLocker.withdrawERC20(baseUSDC, clankerTeamOriginalEOA);
+        lpMetaLocker.withdrawERC20(baseWeth, clankerTeamOriginalEOA);
         vm.stopPrank();
 
-        assertEq(IERC20(baseUSDC).balanceOf(address(lpMetaLocker)), 0);
+        assertEq(IERC20(baseWeth).balanceOf(address(lpMetaLocker)), 0);
         assertEq(
-            IERC20(baseUSDC).balanceOf(clankerTeamOriginalEOA),
+            IERC20(baseWeth).balanceOf(clankerTeamOriginalEOA),
             balanceBeforeUSDC + 1
         );
     }
 
     function test_onERC721Received() public {
         // Can only send tokens that are uniswap positions
-        vm.startPrank(proxystudio);
+        vm.startPrank(0x46EFbAedc92067E6d60E84ED6395099723252496);
         vm.expectRevert(
-            abi.encodeWithSelector(LpMetaLocker.NotOwner.selector, proxystudio)
+            abi.encodeWithSelector(
+                LpMetaLocker.NotOwner.selector,
+                0x46EFbAedc92067E6d60E84ED6395099723252496
+            )
         );
-        IERC721(0x68A6f9527a357Ea55c7D1813aE6546E839a4f1cf).safeTransferFrom(
-            proxystudio,
+        IERC721(0x28d991e49FB82ed004982EbC2Ea4Ad28C9a91f93).safeTransferFrom(
+            0x46EFbAedc92067E6d60E84ED6395099723252496,
             address(lpMetaLocker),
-            1
+            2
         );
         vm.stopPrank();
 
@@ -196,8 +219,8 @@ contract LpMetaLockerTest is Test {
         address runnerERC20Locker = 0xD0bfd7b524BEB42e2AEE4d858EB2087418a6B756;
         uint256 runnerERC20LockerTokenId = 1119331;
 
-        address fridayERC20Locker = 0x13890D5A27B471852c71E0910b398463Fb9e8b16;
-        uint256 fridayERC20LockerTokenId = 1119396;
+        address lumERC20Locker = 0x7A4FBB9A9951706fd9D6FFE95cae2d910b863F50;
+        uint256 lumERC20LockerTokenId = 1119627;
 
         LpMetaLocker.UserFeeRecipient[]
             memory recipients = new LpMetaLocker.UserFeeRecipient[](1);
@@ -241,7 +264,6 @@ contract LpMetaLockerTest is Test {
         assertEq(tokenIds.length, 0);
 
         // Move the runner locker
-
         vm.startPrank(clankerTeamOriginalEOA);
         LpLocker(payable(runnerERC20Locker)).release();
         IERC721(positionManager).safeTransferFrom(
@@ -250,12 +272,20 @@ contract LpMetaLockerTest is Test {
             runnerERC20LockerTokenId
         );
 
+        // Move the friday locker
+        LpLocker(payable(lumERC20Locker)).release();
+        IERC721(positionManager).safeTransferFrom(
+            clankerTeamOriginalEOA,
+            address(lpMetaLocker),
+            lumERC20LockerTokenId
+        );
+
         // Now configure the runner locker
         lpMetaLocker.setUserFeeRecipients(recipients);
 
         // Add friday locker recipient
         lpMetaLocker.addUserFeeRecipient(
-            LpMetaLocker.UserFeeRecipient(proxystudio, fridayERC20LockerTokenId)
+            LpMetaLocker.UserFeeRecipient(proxystudio, lumERC20LockerTokenId)
         );
 
         vm.stopPrank();
@@ -268,16 +298,16 @@ contract LpMetaLockerTest is Test {
         assertEq(lpTokenId, runnerERC20LockerTokenId);
 
         (recipient, lpTokenId) = lpMetaLocker._userFeeRecipientForToken(
-            fridayERC20LockerTokenId
+            lumERC20LockerTokenId
         );
         assertEq(recipient, proxystudio);
-        assertEq(lpTokenId, fridayERC20LockerTokenId);
+        assertEq(lpTokenId, lumERC20LockerTokenId);
 
         // getLpTokenIdsForUser
         tokenIds = lpMetaLocker.getLpTokenIdsForUser(proxystudio);
         assertEq(tokenIds.length, 2);
         assertEq(tokenIds[0], runnerERC20LockerTokenId);
-        assertEq(tokenIds[1], fridayERC20LockerTokenId);
+        assertEq(tokenIds[1], lumERC20LockerTokenId);
         // Collect fees from each tokenId (anyone can collect fees)
         uint256 wethBalanceBeforeproxystudio = IERC20(weth).balanceOf(
             proxystudio
@@ -302,5 +332,43 @@ contract LpMetaLockerTest is Test {
             abi.encodeWithSelector(LpMetaLocker.InvalidTokenId.selector, 1)
         );
         lpMetaLocker.collectFees(1);
+
+        // Override the team fees for the friday locker
+        vm.startPrank(clankerTeamOriginalEOA);
+        lpMetaLocker.setOverrideTeamFeesForToken(
+            lumERC20LockerTokenId,
+            proxystudio,
+            50
+        );
+        vm.stopPrank();
+
+        (
+            address fridayLockerRecipient,
+            uint256 fridayLockerFee,
+            uint256 fridayLockerTokenId
+        ) = lpMetaLocker._teamOverrideFeeRecipientForToken(
+                lumERC20LockerTokenId
+            );
+        assertEq(fridayLockerRecipient, proxystudio);
+        assertEq(fridayLockerFee, 50);
+        assertEq(fridayLockerTokenId, lumERC20LockerTokenId);
+
+        uint256 proxystudioWethBalanceBefore = IERC20(weth).balanceOf(
+            proxystudio
+        );
+        uint256 clankerTeamWethBalanceBefore = IERC20(weth).balanceOf(
+            clankerTeamOriginalEOA
+        );
+
+        lpMetaLocker.collectFees(lumERC20LockerTokenId);
+
+        assertGt(
+            IERC20(weth).balanceOf(proxystudio),
+            proxystudioWethBalanceBefore
+        );
+        assertEq(
+            IERC20(weth).balanceOf(clankerTeamOriginalEOA),
+            clankerTeamWethBalanceBefore
+        );
     }
 }
