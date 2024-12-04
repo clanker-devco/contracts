@@ -10,7 +10,6 @@ import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Recei
 import {NonFungibleContract} from "./IManager.sol";
 
 contract LpMetaLocker is Ownable, IERC721Receiver {
-    event LockId(uint256 _id);
     event Received(address indexed from, uint256 tokenId);
 
     error NotOwner(address owner);
