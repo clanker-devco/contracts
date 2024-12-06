@@ -9,11 +9,11 @@ import "@openzeppelin/contracts/utils/Address.sol";
 import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import {NonFungibleContract} from "./IManager.sol";
 
-contract LpMetaLocker is Ownable, IERC721Receiver {
+contract LpLockerv2 is Ownable, IERC721Receiver {
     event LockId(uint256 _id);
     event Received(address indexed from, uint256 tokenId);
 
-    error NotOwner(address owner);
+    error NotAllowed(address user);
     error InvalidTokenId(uint256 tokenId);
 
     event ClaimedFees(
@@ -29,10 +29,10 @@ contract LpMetaLocker is Ownable, IERC721Receiver {
     IERC721 private SafeERC721;
     address private immutable e721Token;
     address public positionManager = 0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1;
-    string public constant version = "0.0.1";
+    string public constant version = "0.0.2";
     uint256 public _clankerTeamFee;
     address public _clankerTeamRecipient;
-
+    address public _factory;
     struct UserFeeRecipient {
         address recipient;
         uint256 lpTokenId;
@@ -52,14 +52,23 @@ contract LpMetaLocker is Ownable, IERC721Receiver {
     mapping(address => uint256[]) public _userTokenIds;
 
     constructor(
+        address tokenFactory, // Address of the clanker factory
         address token, // Address of the ERC721 Uniswap V3 LP NFT
         address clankerTeamRecipient, // clanker team address to receive portion of the fees
         uint256 clankerTeamFee // clanker team fee percentage
-    ) payable Ownable(clankerTeamRecipient) {
+    ) Ownable(clankerTeamRecipient) {
         SafeERC721 = IERC721(token);
         e721Token = token;
+        _factory = tokenFactory;
         _clankerTeamFee = clankerTeamFee;
         _clankerTeamRecipient = clankerTeamRecipient;
+    }
+
+    modifier onlyOwnerOrFactory() {
+        if (msg.sender != owner() && msg.sender != _factory) {
+            revert NotAllowed(msg.sender);
+        }
+        _;
     }
 
     function setOverrideTeamFeesForToken(
@@ -83,8 +92,6 @@ contract LpMetaLocker is Ownable, IERC721Receiver {
     function updateClankerTeamRecipient(address newRecipient) public onlyOwner {
         _clankerTeamRecipient = newRecipient;
     }
-
-    receive() external payable virtual {}
 
     // Withdraw ETH from the contract
     function withdrawETH(address recipient) public onlyOwner {
@@ -183,21 +190,9 @@ contract LpMetaLocker is Ownable, IERC721Receiver {
         return _userTokenIds[user];
     }
 
-    function setUserFeeRecipients(
-        UserFeeRecipient[] memory recipients
-    ) public onlyOwner {
-        _userFeeRecipients = recipients;
-        for (uint256 i = 0; i < recipients.length; i++) {
-            _userFeeRecipientForToken[recipients[i].lpTokenId] = recipients[i];
-            _userTokenIds[recipients[i].recipient].push(
-                recipients[i].lpTokenId
-            );
-        }
-    }
-
     function addUserFeeRecipient(
         UserFeeRecipient memory recipient
-    ) public onlyOwner {
+    ) public onlyOwnerOrFactory {
         _userFeeRecipients.push(recipient);
         _userFeeRecipientForToken[recipient.lpTokenId] = recipient;
         _userTokenIds[recipient.recipient].push(recipient.lpTokenId);
@@ -210,8 +205,8 @@ contract LpMetaLocker is Ownable, IERC721Receiver {
         bytes calldata
     ) external override returns (bytes4) {
         // Only clanker team EOA can send the NFT here
-        if (from != _clankerTeamRecipient) {
-            revert NotOwner(from);
+        if (from != _factory) {
+            revert NotAllowed(from);
         }
 
         emit Received(from, id);

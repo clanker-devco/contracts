@@ -30,12 +30,10 @@ contract ClankerScript is Script {
         lockerFactory.setFeeRecipient(clankerTeamEOA);
 
         clanker = new Clanker(
-            taxCollector,
             weth,
             address(lockerFactory),
             uniswapV3Factory,
             positionManager,
-            defaultLockingPeriod,
             swapRouter,
             clankerTeamEOA
         );

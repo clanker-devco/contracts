@@ -3,9 +3,11 @@ pragma solidity ^0.8.25;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {TickMath} from "@uniswap/v3-core/contracts/libraries/TickMath.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {INonfungiblePositionManager, IUniswapV3Factory, ILockerFactory, ILocker, ExactInputSingleParams, ISwapRouter} from "./interface.sol";
 import {ClankerToken} from "./ClankerToken.sol";
+import {LpLockerv2} from "./LpLockerv2.sol";
 
 contract Clanker is Ownable {
     using TickMath for int24;
@@ -13,26 +15,28 @@ contract Clanker is Ownable {
     error Deprecated();
     error NotAdmin(address user);
 
-    address public taxCollector;
-    uint64 public defaultLockingPeriod = 33275115461;
-    uint8 public taxRate = 25; // 25 / 1000 -> 2.5 %
     uint8 public lpFeesCut = 50; // 5 / 100 -> 5%
     uint8 public protocolCut = 30; // 3 / 100 -> 3%
-    ILockerFactory public liquidityLocker;
+    LpLockerv2 public liquidityLocker;
+    string public constant version = "0.0.2";
 
     address public weth;
+    address public clankerToken = 0x1bc0c42215582d5A085795f4baDbaC3ff36d1Bcb;
+
     IUniswapV3Factory public uniswapV3Factory;
     INonfungiblePositionManager public positionManager;
     address public swapRouter;
 
     bool public deprecated;
-    bool public bundleFeeSwitch;
+
+    uint256 public initialClankerBuyAmount;
 
     mapping(address => bool) public admins;
 
     struct DeploymentInfo {
         address token;
-        uint256 lpNftId;
+        uint256 wethPositionId;
+        uint256 clankerPositionId;
         address locker;
     }
 
@@ -40,7 +44,8 @@ contract Clanker is Ownable {
 
     event TokenCreated(
         address tokenAddress,
-        uint256 lpNftId,
+        uint256 wethPositionId,
+        uint256 clankerPositionId,
         address deployer,
         uint256 fid,
         string name,
@@ -57,21 +62,17 @@ contract Clanker is Ownable {
     }
 
     constructor(
-        address taxCollector_,
         address weth_,
         address locker_,
         address uniswapV3Factory_,
         address positionManager_,
-        uint64 defaultLockingPeriod_,
         address swapRouter_,
         address owner_
     ) Ownable(owner_) {
-        taxCollector = taxCollector_;
         weth = weth_;
-        liquidityLocker = ILockerFactory(locker_);
+        liquidityLocker = LpLockerv2(locker_);
         uniswapV3Factory = IUniswapV3Factory(uniswapV3Factory_);
         positionManager = INonfungiblePositionManager(positionManager_);
-        defaultLockingPeriod = defaultLockingPeriod_;
         swapRouter = swapRouter_;
     }
 
@@ -85,7 +86,8 @@ contract Clanker is Ownable {
         string calldata _name,
         string calldata _symbol,
         uint256 _supply,
-        int24 _initialTick,
+        int24 _initialTickWeth,
+        int24 _initialTickClanker,
         uint24 _fee,
         bytes32 _salt,
         address _deployer,
@@ -96,14 +98,22 @@ contract Clanker is Ownable {
         external
         payable
         onlyOwnerOrAdmin
-        returns (ClankerToken token, uint256 tokenId)
+        returns (
+            ClankerToken token,
+            uint256 wethPositionId,
+            uint256 clankerPositionId
+        )
     {
         if (deprecated) revert Deprecated();
 
         int24 tickSpacing = uniswapV3Factory.feeAmountTickSpacing(_fee);
 
         require(
-            tickSpacing != 0 && _initialTick % tickSpacing == 0,
+            tickSpacing != 0 && _initialTickWeth % tickSpacing == 0,
+            "Invalid tick"
+        );
+        require(
+            tickSpacing != 0 && _initialTickClanker % tickSpacing == 0,
             "Invalid tick"
         );
 
@@ -120,19 +130,53 @@ contract Clanker is Ownable {
         // Makes sure that the token address is less than the WETH address. This is so that the token
         // is first in the pool. Just makes things consistent.
         require(address(token) < weth, "Invalid salt");
+        require(address(token) < clankerToken, "Invalid salt");
 
-        uint160 sqrtPriceX96 = _initialTick.getSqrtRatioAtTick();
-        address pool = uniswapV3Factory.createPool(address(token), weth, _fee);
-        IUniswapV3Factory(pool).initialize(sqrtPriceX96);
+        uint160 sqrtPriceX96Weth = _initialTickWeth.getSqrtRatioAtTick();
+        uint160 sqrtPriceX96Clanker = _initialTickClanker.getSqrtRatioAtTick();
+
+        // Create weth pool
+        address wethPool = uniswapV3Factory.createPool(
+            address(token),
+            weth,
+            _fee
+        );
+
+        // Create clanker pool
+        address clankerPool = uniswapV3Factory.createPool(
+            address(token),
+            clankerToken,
+            _fee
+        );
+
+        IUniswapV3Factory(wethPool).initialize(sqrtPriceX96Weth);
+        IUniswapV3Factory(clankerPool).initialize(sqrtPriceX96Clanker);
+
+        uint256 halfSupply = _supply / 2;
 
         INonfungiblePositionManager.MintParams
-            memory params = INonfungiblePositionManager.MintParams(
+            memory wethParams = INonfungiblePositionManager.MintParams(
                 address(token),
                 weth,
                 _fee,
-                _initialTick,
+                _initialTickWeth,
                 maxUsableTick(tickSpacing),
-                _supply,
+                halfSupply,
+                0,
+                0,
+                0,
+                address(this),
+                block.timestamp
+            );
+
+        INonfungiblePositionManager.MintParams
+            memory clankerParams = INonfungiblePositionManager.MintParams(
+                address(token),
+                clankerToken,
+                _fee,
+                _initialTickClanker,
+                maxUsableTick(tickSpacing),
+                halfSupply,
                 0,
                 0,
                 0,
@@ -141,70 +185,98 @@ contract Clanker is Ownable {
             );
 
         token.approve(address(positionManager), _supply);
-        (tokenId, , , ) = positionManager.mint(params);
+        (wethPositionId, , , ) = positionManager.mint(wethParams);
+        (clankerPositionId, , , ) = positionManager.mint(clankerParams);
 
-        address lockerAddress = liquidityLocker.deploy(
-            address(positionManager),
-            _deployer,
-            defaultLockingPeriod,
-            tokenId,
-            lpFeesCut
+        positionManager.safeTransferFrom(
+            address(this),
+            address(liquidityLocker),
+            wethPositionId
+        );
+        positionManager.safeTransferFrom(
+            address(this),
+            address(liquidityLocker),
+            clankerPositionId
         );
 
-        positionManager.safeTransferFrom(address(this), lockerAddress, tokenId);
+        liquidityLocker.addUserFeeRecipient(
+            LpLockerv2.UserFeeRecipient({
+                recipient: _deployer,
+                lpTokenId: wethPositionId
+            })
+        );
 
-        ILocker(lockerAddress).initializer(tokenId);
+        liquidityLocker.addUserFeeRecipient(
+            LpLockerv2.UserFeeRecipient({
+                recipient: _deployer,
+                lpTokenId: clankerPositionId
+            })
+        );
 
         if (msg.value > 0) {
-            uint256 remainingFundsToBuyTokens = msg.value;
-            if (bundleFeeSwitch) {
-                uint256 protocolFees = (msg.value * taxRate) / 1000;
-                remainingFundsToBuyTokens = msg.value - protocolFees;
-
-                (bool success, ) = payable(taxCollector).call{
-                    value: protocolFees
-                }("");
-
-                if (!success) {
-                    revert("Failed to send protocol fees");
-                }
-            }
-
-            ExactInputSingleParams memory swapParams = ExactInputSingleParams({
+            ExactInputSingleParams memory swapParamsTokenWeth = ExactInputSingleParams({
                 tokenIn: weth, // The token we are exchanging from (ETH wrapped as WETH)
                 tokenOut: address(token), // The token we are exchanging to
                 fee: _fee, // The pool fee
                 recipient: _deployer, // The recipient address
-                amountIn: remainingFundsToBuyTokens, // The amount of ETH (WETH) to be swapped
+                amountIn: msg.value, // The amount of ETH (WETH) to be swapped
                 amountOutMinimum: 0, // Minimum amount to receive
                 sqrtPriceLimitX96: 0 // No price limit
             });
 
             // The call to `exactInputSingle` executes the swap.
-            ISwapRouter(swapRouter).exactInputSingle{
-                value: remainingFundsToBuyTokens
-            }(swapParams);
+            ISwapRouter(swapRouter).exactInputSingle{value: msg.value}(
+                swapParamsTokenWeth
+            );
+
+            IERC20(clankerToken).transferFrom(
+                msg.sender,
+                address(this),
+                initialClankerBuyAmount
+            );
+
+            // Buy some token with the clanker
+            ExactInputSingleParams memory swapParamsTokenClanker = ExactInputSingleParams({
+                tokenIn: clankerToken, // The token we are exchanging from (ETH wrapped as WETH)
+                tokenOut: address(token), // The token we are exchanging to
+                fee: _fee, // The pool fee
+                recipient: _deployer, // The recipient address
+                amountIn: initialClankerBuyAmount, // The amount of CLANKER to be swapped
+                amountOutMinimum: 0, // Minimum amount to receive
+                sqrtPriceLimitX96: 0 // No price limit
+            });
+
+            // Approve clanker to the swap router
+            IERC20(clankerToken).approve(swapRouter, initialClankerBuyAmount);
+
+            ISwapRouter(swapRouter).exactInputSingle(swapParamsTokenClanker);
         }
 
         tokensDeployedByUsers[_deployer].push(
             DeploymentInfo({
                 token: address(token),
-                lpNftId: tokenId,
-                locker: lockerAddress
+                wethPositionId: wethPositionId,
+                clankerPositionId: clankerPositionId,
+                locker: address(liquidityLocker)
             })
         );
 
         emit TokenCreated(
             address(token),
-            tokenId,
+            wethPositionId,
+            clankerPositionId,
             _deployer,
             _fid,
             _name,
             _symbol,
             _supply,
-            lockerAddress,
+            address(liquidityLocker),
             _castHash
         );
+    }
+
+    function setInitialClankerBuyAmount(uint256 amount) external onlyOwner {
+        initialClankerBuyAmount = amount;
     }
 
     function setAdmin(address admin, bool isAdmin) external onlyOwner {
@@ -225,35 +297,20 @@ contract Clanker is Ownable {
 
         if (!found) revert("Token not found");
 
-        ILocker(tokenInfo.locker).collectFees(msg.sender, tokenInfo.lpNftId);
-    }
-
-    function toggleBundleFeeSwitch(bool _enabled) external onlyOwner {
-        bundleFeeSwitch = _enabled;
+        ILocker(tokenInfo.locker).collectFees(tokenInfo.wethPositionId);
+        ILocker(tokenInfo.locker).collectFees(tokenInfo.clankerPositionId);
     }
 
     function setDeprecated(bool _deprecated) external onlyOwner {
         deprecated = _deprecated;
     }
 
-    function updateTaxCollector(address newCollector) external onlyOwner {
-        taxCollector = newCollector;
-    }
-
     function updateLiquidityLocker(address newLocker) external onlyOwner {
-        liquidityLocker = ILockerFactory(newLocker);
-    }
-
-    function updateDefaultLockingPeriod(uint64 newPeriod) external onlyOwner {
-        defaultLockingPeriod = newPeriod;
+        liquidityLocker = LpLockerv2(newLocker);
     }
 
     function updateProtocolFees(uint8 newFee) external onlyOwner {
         lpFeesCut = newFee;
-    }
-
-    function updateTaxRate(uint8 newRate) external onlyOwner {
-        taxRate = newRate;
     }
 }
 

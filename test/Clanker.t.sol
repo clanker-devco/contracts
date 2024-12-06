@@ -5,13 +5,14 @@ import {Test, console} from "forge-std/Test.sol";
 import {Clanker} from "../src/Clanker.sol";
 import {ClankerToken} from "../src/ClankerToken.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {SocialDexDeployer} from "./SocialDexDeployer.sol";
 import {LPLocker} from "./InterfacesForTesting.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {LockerFactory} from "../src/LockerFactory.sol";
 import {LpLocker} from "../src/LpLocker.sol";
 import {ExactInputSingleParams, ISwapRouter} from "../src/interface.sol";
 import "./Bytes32AddressLib.sol";
+import {OldLpLocker} from "./InterfacesForTesting.sol";
+import {LpLockerv2} from "../src/LpLockerv2.sol";
 
 // Mock contract that reverts when receiving ETH
 contract MockNonReceiver {
@@ -24,12 +25,16 @@ contract ClankerTest is Test {
     using Bytes32AddressLib for bytes32;
 
     Clanker public clanker;
+    LpLockerv2 public liquidityLocker;
 
     address proxystudio = 0x053707B201385AE3421D450A1FF272952D2D6971;
     uint256 proxystudio_fid = 270504;
     address not_proxystudio = makeAddr("not_proxystudio");
 
     address badBot = 0xB8E8d2a9b5D1FF8FEb4EFA686ac1D15Bf960070d;
+
+    address usdc = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
+    address clankerToken = 0x1bc0c42215582d5A085795f4baDbaC3ff36d1Bcb;
 
     string clankerImage =
         "https://assets.coingecko.com/coins/images/51440/standard/CLANKER.png?1731232869";
@@ -38,14 +43,14 @@ contract ClankerTest is Test {
 
     uint baseFork;
     uint forkBlock = 23054702;
-    string alchemyBase = "https://base-mainnet.g.alchemy.com/v2/";
+    string alchemyBase =
+        "https://base-mainnet.g.alchemy.com/v2/78Auxb3oCMIgLQ_-CMVzF6r69yKdUA9u";
 
     address taxCollector = 0x04F6ef12a8B6c2346C8505eE4Cff71C43D2dd825;
     address weth = 0x4200000000000000000000000000000000000006;
     address swapRouter = 0x2626664c2603336E57B271c5C0b26F421741e481;
     address uniswapV3Factory = 0x33128a8fC17869897dcE68Ed026d694621f6FDfD;
     address positionManager = 0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1;
-    address liquidityLocker;
     uint64 defaultLockingPeriod = 4132317178;
 
     address currentClankerContract = 0x250c9FB2b411B48273f69879007803790A6AeA47;
@@ -113,7 +118,9 @@ contract ClankerTest is Test {
                 supply,
                 salt
             );
-            if (token < weth && token.code.length == 0) {
+            if (
+                token < weth && token.code.length == 0 && token < clankerToken
+            ) {
                 break;
             }
         }
@@ -144,18 +151,46 @@ contract ClankerTest is Test {
         LockerFactory lockerFactory = new LockerFactory();
         lockerFactory.setFeeRecipient(clankerTeamEOA);
 
-        liquidityLocker = address(lockerFactory);
-
         clanker = new Clanker(
-            taxCollector,
             weth,
-            liquidityLocker,
+            address(0),
             uniswapV3Factory,
             positionManager,
-            defaultLockingPeriod,
             swapRouter,
             clankerTeamEOA
         );
+
+        liquidityLocker = new LpLockerv2(
+            address(clanker),
+            address(positionManager),
+            clankerTeamEOA,
+            50
+        );
+
+        vm.stopPrank();
+        vm.startPrank(clankerTeamEOA);
+        clanker.updateLiquidityLocker(address(liquidityLocker));
+        // Approve the clanker deployer to spend the clanker
+        IERC20(clankerToken).approve(address(clanker), type(uint256).max);
+
+        // Set the clanker amount to 5
+        clanker.setInitialClankerBuyAmount(5);
+
+        // Market buy some CLANKER
+        ExactInputSingleParams memory swapParams = ExactInputSingleParams({
+            tokenIn: weth, // The token we are exchanging from (ETH wrapped as WETH)
+            tokenOut: clankerToken, // The token we are exchanging to
+            fee: 10000, // The pool fee
+            recipient: clankerTeamEOA, // The recipient address
+            amountIn: 0.1 ether, // The amount of ETH (WETH) to be swapped
+            amountOutMinimum: 0, // Minimum amount of DAI to receive
+            sqrtPriceLimitX96: 0 // No price limit
+        });
+
+        vm.deal(clankerTeamEOA, 1 ether);
+
+        // The call to `exactInputSingle` executes the swap.
+        ISwapRouter(swapRouter).exactInputSingle{value: 0.1 ether}(swapParams);
 
         vm.stopPrank();
     }
@@ -166,7 +201,7 @@ contract ClankerTest is Test {
             proxystudio,
             proxystudio_fid,
             "proxystudio",
-            "PROXY",
+            "WKND",
             clankerImage,
             exampleCastHash,
             1 ether
@@ -179,16 +214,6 @@ contract ClankerTest is Test {
     function test_ownerOnlyFunctions() public {
         // Reverts with Ownable if not owner...
         vm.startPrank(not_proxystudio);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                Ownable.OwnableUnauthorizedAccount.selector,
-                not_proxystudio
-            )
-        );
-        clanker.updateTaxCollector(address(0));
-
-        // It didn't change
-        assertEq(clanker.taxCollector(), taxCollector);
 
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -199,18 +224,7 @@ contract ClankerTest is Test {
         clanker.updateLiquidityLocker(address(0));
 
         // It didn't change
-        assertEq(address(clanker.liquidityLocker()), liquidityLocker);
-
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                Ownable.OwnableUnauthorizedAccount.selector,
-                not_proxystudio
-            )
-        );
-        clanker.updateDefaultLockingPeriod(0);
-
-        // It didn't change
-        assertEq(clanker.defaultLockingPeriod(), defaultLockingPeriod);
+        assertEq(address(clanker.liquidityLocker()), address(liquidityLocker));
 
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -229,32 +243,10 @@ contract ClankerTest is Test {
                 not_proxystudio
             )
         );
-        clanker.updateTaxRate(0);
-
-        // It didn't change
-        assertEq(clanker.taxRate(), 25);
-
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                Ownable.OwnableUnauthorizedAccount.selector,
-                not_proxystudio
-            )
-        );
         clanker.setDeprecated(true);
 
         // It didn't change
         assertEq(clanker.deprecated(), false);
-
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                Ownable.OwnableUnauthorizedAccount.selector,
-                not_proxystudio
-            )
-        );
-        clanker.toggleBundleFeeSwitch(true);
-
-        // It didn't change
-        assertEq(clanker.bundleFeeSwitch(), false);
 
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -267,36 +259,39 @@ contract ClankerTest is Test {
         // not_proxystudio is still not an admin
         assertEq(clanker.admins(not_proxystudio), false);
 
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Ownable.OwnableUnauthorizedAccount.selector,
+                not_proxystudio
+            )
+        );
+        clanker.setInitialClankerBuyAmount(10);
+
+        // It didn't change
+        assertEq(clanker.initialClankerBuyAmount(), 5);
+
         vm.stopPrank();
 
         // Now update it as owner
         vm.startPrank(clankerTeamEOA);
-        clanker.updateTaxCollector(address(0));
-        assertEq(clanker.taxCollector(), address(0));
 
         clanker.updateLiquidityLocker(address(0));
         assertEq(address(clanker.liquidityLocker()), address(0));
 
-        clanker.updateDefaultLockingPeriod(0);
-        assertEq(clanker.defaultLockingPeriod(), 0);
-
         clanker.updateProtocolFees(0);
         assertEq(clanker.lpFeesCut(), 0);
 
-        clanker.updateTaxRate(0);
-        assertEq(clanker.taxRate(), 0);
-
         clanker.setDeprecated(true);
         assertEq(clanker.deprecated(), true);
-
-        clanker.toggleBundleFeeSwitch(true);
-        assertEq(clanker.bundleFeeSwitch(), true);
 
         clanker.setAdmin(not_proxystudio, true);
         assertEq(clanker.admins(not_proxystudio), true);
 
         clanker.setAdmin(not_proxystudio, false);
         assertEq(clanker.admins(not_proxystudio), false);
+
+        clanker.setInitialClankerBuyAmount(10);
+        assertEq(clanker.initialClankerBuyAmount(), 10);
 
         vm.stopPrank();
     }
@@ -313,9 +308,10 @@ contract ClankerTest is Test {
         vm.expectRevert("Invalid tick");
         clanker.deployToken(
             "proxystudio",
-            "PROXY",
+            "WKND",
             1 ether,
             1,
+            10,
             10,
             bytes32(0),
             proxystudio,
@@ -328,9 +324,10 @@ contract ClankerTest is Test {
         vm.expectRevert("Invalid salt");
         clanker.deployToken(
             "proxystudio",
-            "PROXY",
+            "WKND",
             1 ether,
             1,
+            100,
             100,
             bytes32(
                 0x0000000000000000000000000000000000000000000000000000000000000002
@@ -346,7 +343,7 @@ contract ClankerTest is Test {
             proxystudio,
             proxystudio_fid,
             "proxystudio",
-            "PROXY",
+            "WKND",
             clankerImage,
             exampleCastHash,
             1 ether
@@ -358,9 +355,10 @@ contract ClankerTest is Test {
         vm.startPrank(clankerTeamEOA);
         clanker.deployToken(
             "proxystudio",
-            "PROXY",
+            "WKND",
             1 ether,
             1,
+            100,
             100,
             salt,
             proxystudio,
@@ -372,7 +370,7 @@ contract ClankerTest is Test {
         // All the token's data is correct
         ClankerToken tokenContract = ClankerToken(token);
         assertEq(tokenContract.name(), "proxystudio");
-        assertEq(tokenContract.symbol(), "PROXY");
+        assertEq(tokenContract.symbol(), "WKND");
         assertEq(tokenContract.totalSupply(), 1 ether);
         assertEq(tokenContract.deployer(), proxystudio);
         assertEq(tokenContract.fid(), proxystudio_fid);
@@ -385,19 +383,18 @@ contract ClankerTest is Test {
             .getTokensDeployedByUser(proxystudio);
         assertEq(deployments.length, 1);
         assertEq(deployments[0].token, token);
-        assertEq(deployments[0].lpNftId, 1260053);
-        assertEq(
-            deployments[0].locker,
-            address(0x92B69d134b81AC3a80833662D8199ee293f22B01)
-        );
+        assertEq(deployments[0].wethPositionId, 1260053);
+        assertEq(deployments[0].clankerPositionId, 1260054);
+        assertEq(deployments[0].locker, address(liquidityLocker));
 
         // Cannot deploy again with the same salt
         vm.expectRevert();
         clanker.deployToken(
             "proxystudio",
-            "PROXY",
+            "WKND",
             1 ether,
             1,
+            100,
             100,
             salt,
             proxystudio,
@@ -413,7 +410,7 @@ contract ClankerTest is Test {
             proxystudio,
             proxystudio_fid,
             "proxystudio",
-            "PROXY",
+            "WKND",
             clankerImage,
             exampleCastHash,
             1 ether
@@ -425,15 +422,35 @@ contract ClankerTest is Test {
 
         vm.stopPrank();
 
-        vm.deal(not_proxystudio, 1 ether);
+        vm.deal(not_proxystudio, 2 ether);
         vm.startPrank(not_proxystudio);
+
+        // Buy and approve some clanker!
+
+        // Approve the clanker deployer to spend the clanker
+        IERC20(clankerToken).approve(address(clanker), type(uint256).max);
+
+        // Market buy some CLANKER
+        ExactInputSingleParams memory swapParams = ExactInputSingleParams({
+            tokenIn: weth, // The token we are exchanging from (ETH wrapped as WETH)
+            tokenOut: clankerToken, // The token we are exchanging to
+            fee: 10000, // The pool fee
+            recipient: not_proxystudio, // The recipient address
+            amountIn: 0.1 ether, // The amount of ETH (WETH) to be swapped
+            amountOutMinimum: 0, // Minimum amount of DAI to receive
+            sqrtPriceLimitX96: 0 // No price limit
+        });
+
+        // The call to `exactInputSingle` executes the swap.
+        ISwapRouter(swapRouter).exactInputSingle{value: 0.1 ether}(swapParams);
 
         // Deploy the token with value
         clanker.deployToken{value: 1 ether}(
             "proxystudio",
-            "PROXY",
+            "WKND",
             1 ether,
             1,
+            100,
             100,
             newSalt,
             proxystudio,
@@ -452,7 +469,7 @@ contract ClankerTest is Test {
             proxystudio,
             proxystudio_fid,
             "proxystudio",
-            "PROXY",
+            "WKND",
             clankerImage,
             exampleCastHash,
             1 ether
@@ -461,9 +478,10 @@ contract ClankerTest is Test {
         vm.expectRevert(Clanker.Deprecated.selector);
         clanker.deployToken(
             "proxystudio",
-            "PROXY",
+            "WKND",
             1 ether,
             1,
+            100,
             100,
             newSalt2,
             proxystudio,
@@ -474,136 +492,23 @@ contract ClankerTest is Test {
 
         // Undeprecate the factory
         clanker.setDeprecated(false);
+        vm.warp(block.timestamp + 1);
+        vm.roll(block.number + 1);
 
-        // Turn on the fee switch
-        clanker.toggleBundleFeeSwitch(true);
-        assertEq(clanker.bundleFeeSwitch(), true);
-
-        vm.deal(proxystudio, 2);
+        vm.deal(clankerTeamEOA, 2 ether);
         // Deploy a new token with value
-        clanker.deployToken{value: 1}(
+        clanker.deployToken{value: 0.05 ether}(
             "proxystudio",
-            "PROXY",
+            "WKND",
             1 ether,
             1,
+            100,
             100,
             newSalt2,
             proxystudio,
             proxystudio_fid,
             clankerImage,
             exampleCastHash
-        );
-
-        vm.stopPrank();
-    }
-
-    function test_badTaxCollector() public {
-        vm.startPrank(clankerTeamEOA);
-
-        MockNonReceiver newTaxCollector = new MockNonReceiver();
-        clanker.updateTaxCollector(address(newTaxCollector));
-
-        (bytes32 salt, address token) = this.generateSalt(
-            proxystudio,
-            proxystudio_fid,
-            "proxystudio",
-            "PROXY",
-            clankerImage,
-            exampleCastHash,
-            1 ether
-        );
-
-        // Doesnt revert because fee switch is off
-        clanker.deployToken{value: 1}(
-            "proxystudio",
-            "PROXY",
-            1 ether,
-            1,
-            100,
-            salt,
-            proxystudio,
-            proxystudio_fid,
-            clankerImage,
-            exampleCastHash
-        );
-
-        // Does revert once fee switch is on
-        clanker.toggleBundleFeeSwitch(true);
-        assertEq(clanker.bundleFeeSwitch(), true);
-
-        (bytes32 newSalt, address newToken) = this.generateSalt(
-            proxystudio,
-            proxystudio_fid,
-            "proxystudio",
-            "PROXY",
-            clankerImage,
-            exampleCastHash,
-            1 ether
-        );
-
-        // Try to create a token without value
-        vm.expectRevert("Failed to send protocol fees");
-        clanker.deployToken{value: 1}(
-            "proxystudio",
-            "PROXY",
-            1 ether,
-            1,
-            100,
-            newSalt,
-            proxystudio,
-            proxystudio_fid,
-            clankerImage,
-            exampleCastHash
-        );
-
-        // Reverts when creating with value also
-        vm.deal(proxystudio, 1 ether);
-        vm.expectRevert("Failed to send protocol fees");
-        clanker.deployToken{value: 1}(
-            "proxystudio",
-            "PROXY",
-            1 ether,
-            1,
-            100,
-            newSalt,
-            proxystudio,
-            proxystudio_fid,
-            clankerImage,
-            exampleCastHash
-        );
-
-        vm.stopPrank();
-    }
-
-    function test_specificCurrentBrokenSaltBehavior() public {
-        // Create a token with a salt for deployer, will end up being different token than expected...
-        // Select fork
-        vm.selectFork(baseFork);
-        vm.warp(block.timestamp + 1);
-
-        // Generate the sale for a proxystudio coin
-        (bytes32 salt, address token) = SocialDexDeployer(
-            currentClankerContract
-        ).generateSalt(proxystudio, "proxystudio", "PROXY", 1 ether);
-
-        // Anyone can deploy the token technically, but if the clanker team deploys then we have a salt mismatch...
-        vm.startPrank(clankerTeamEOA);
-
-        // Check the event is emitted
-        // THIS FAILS -- the address is NOT as expected...
-        // vm.expectEmit(true, true, true, true);
-        // emit Clanker.TokenCreated(token);
-
-        // Almost always get "invalid salt"
-        vm.expectRevert(bytes("Invalid salt"));
-        SocialDexDeployer(currentClankerContract).deployToken(
-            "proxystudio",
-            "PROXY",
-            1 ether,
-            1,
-            100,
-            salt,
-            proxystudio
         );
 
         vm.stopPrank();
@@ -618,7 +523,7 @@ contract ClankerTest is Test {
             proxystudio,
             proxystudio_fid,
             "proxystudio",
-            "PROXY",
+            "WKND",
             clankerImage,
             exampleCastHash,
             1 ether
@@ -631,20 +536,22 @@ contract ClankerTest is Test {
         emit Clanker.TokenCreated(
             token,
             1260053,
+            1260054,
             proxystudio,
             proxystudio_fid,
             "proxystudio",
-            "PROXY",
+            "WKND",
             1 ether,
-            address(0x92B69d134b81AC3a80833662D8199ee293f22B01),
+            address(liquidityLocker),
             exampleCastHash
         );
 
         clanker.deployToken(
             "proxystudio",
-            "PROXY",
+            "WKND",
             1 ether,
             1,
+            100,
             100,
             salt,
             proxystudio,
@@ -664,13 +571,19 @@ contract ClankerTest is Test {
         // Only clanker team EOA can claim fees...
         vm.startPrank(not_proxystudio);
         vm.expectRevert(bytes("only owner can call"));
-        LPLocker(blondeLPLocker).collectFees(not_proxystudio, blondeLPTokenId);
+        OldLpLocker(blondeLPLocker).collectFees(
+            not_proxystudio,
+            blondeLPTokenId
+        );
 
         vm.stopPrank();
 
         // Can claim if team EOA
         vm.startPrank(clankerTeamEOA);
-        LPLocker(blondeLPLocker).collectFees(proxystudio, blondeLPTokenId);
+        OldLpLocker(blondeLPLocker).collectFees(
+            not_proxystudio,
+            blondeLPTokenId
+        );
 
         vm.stopPrank();
     }
@@ -689,7 +602,7 @@ contract ClankerTest is Test {
             proxystudio,
             proxystudio_fid,
             "proxystudio",
-            "PROXY",
+            "WKND",
             clankerImage,
             exampleCastHash,
             1 ether
@@ -702,21 +615,23 @@ contract ClankerTest is Test {
         emit Clanker.TokenCreated(
             token,
             1260053,
+            1260054,
             proxystudio,
             proxystudio_fid,
             "proxystudio",
-            "PROXY",
+            "WKND",
             1 ether,
-            address(0x92B69d134b81AC3a80833662D8199ee293f22B01),
+            address(liquidityLocker),
             exampleCastHash
         );
 
         vm.deal(clankerTeamEOA, 0.1 ether);
         clanker.deployToken{value: 0.1 ether}(
             "proxystudio",
-            "PROXY",
+            "WKND",
             1 ether,
             1,
+            100,
             100,
             salt,
             proxystudio,
@@ -733,23 +648,10 @@ contract ClankerTest is Test {
         this.initialSwapTokens{value: 1 ether}(token, 100);
         vm.stopPrank();
 
-        // Clanker team EOA can't claim fees from the locker
-        vm.startPrank(clankerTeamEOA);
-
         uint proxystudioBalanceBefore = IERC20(weth).balanceOf(proxystudio);
         uint clankerTeamEoABalanceBefore = IERC20(weth).balanceOf(
             clankerTeamEOA
         );
-
-        vm.expectRevert(
-            abi.encodeWithSelector(LpLocker.NotOwner.selector, proxystudio)
-        );
-        LPLocker(0x92B69d134b81AC3a80833662D8199ee293f22B01).collectFees(
-            proxystudio,
-            1260053
-        );
-
-        vm.stopPrank();
 
         uint proxystudioBalanceAfter = IERC20(weth).balanceOf(proxystudio);
         uint clankerTeamEoABalanceAfter = IERC20(weth).balanceOf(
@@ -760,10 +662,9 @@ contract ClankerTest is Test {
 
         // proxystudio can claim fees
         vm.startPrank(proxystudio);
-        LPLocker(0x92B69d134b81AC3a80833662D8199ee293f22B01).collectFees(
-            proxystudio,
-            1260053
-        );
+        LpLockerv2(address(liquidityLocker)).collectFees(1260053);
+
+        LpLockerv2(address(liquidityLocker)).collectFees(1260054);
 
         vm.stopPrank();
 
@@ -789,7 +690,7 @@ contract ClankerTest is Test {
             proxystudio,
             proxystudio_fid,
             "proxystudio",
-            "PROXY",
+            "WKND",
             clankerImage,
             exampleCastHash,
             1 ether
@@ -801,21 +702,23 @@ contract ClankerTest is Test {
         emit Clanker.TokenCreated(
             token,
             1260053,
+            1260054,
             proxystudio,
             proxystudio_fid,
             "proxystudio",
-            "PROXY",
+            "WKND",
             1 ether,
-            address(0x92B69d134b81AC3a80833662D8199ee293f22B01),
+            address(liquidityLocker),
             exampleCastHash
         );
 
         vm.deal(clankerTeamEOA, 0.1 ether);
         clanker.deployToken{value: 0.1 ether}(
             "proxystudio",
-            "PROXY",
+            "WKND",
             1 ether,
             1,
+            100,
             100,
             salt,
             proxystudio,
@@ -859,11 +762,9 @@ contract ClankerTest is Test {
             .getTokensDeployedByUser(proxystudio);
         assertEq(deployments.length, 1);
         assertEq(deployments[0].token, token);
-        assertEq(deployments[0].lpNftId, 1260053);
-        assertEq(
-            deployments[0].locker,
-            address(0x92B69d134b81AC3a80833662D8199ee293f22B01)
-        );
+        assertEq(deployments[0].wethPositionId, 1260053);
+        assertEq(deployments[0].clankerPositionId, 1260054);
+        assertEq(deployments[0].locker, address(liquidityLocker));
         clanker.claimFees(token);
 
         vm.stopPrank();

@@ -9,6 +9,7 @@ import {ExactInputSingleParams, ISwapRouter} from "../src/interface.sol";
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import {LpLocker} from "../src/LpLocker.sol";
 import "./Bytes32AddressLib.sol";
+import {OldLpLocker} from "./InterfacesForTesting.sol";
 
 contract LpMetaLockerTest is Test {
     using Bytes32AddressLib for bytes32;
@@ -19,7 +20,8 @@ contract LpMetaLockerTest is Test {
     address baseWeth = 0x4200000000000000000000000000000000000006;
 
     uint baseFork;
-    string alchemyBase = "https://base-mainnet.g.alchemy.com/v2/";
+    string alchemyBase =
+        "https://base-mainnet.g.alchemy.com/v2/78Auxb3oCMIgLQ_-CMVzF6r69yKdUA9u";
 
     address taxCollector = 0x04F6ef12a8B6c2346C8505eE4Cff71C43D2dd825;
     address weth = 0x4200000000000000000000000000000000000006;
@@ -32,7 +34,7 @@ contract LpMetaLockerTest is Test {
     uint256 clankerTeamFee = 60;
 
     function setUp() public {
-        baseFork = vm.createSelectFork(alchemyBase);
+        baseFork = vm.createSelectFork(alchemyBase, 23314605);
 
         vm.startPrank(clankerTeamOriginalEOA);
 
@@ -135,12 +137,13 @@ contract LpMetaLockerTest is Test {
         assertEq(clankerTeamOriginalEOA.balance, balanceBefore + 1 ether);
 
         // Now send some ERC20 tokens to the contract
+        address baseDegen = 0x4ed4E862860beD51a9570b96d89aF5E1B0Efefed;
         vm.startPrank(proxystudio);
-        IERC20(baseWeth).transfer(address(lpMetaLocker), 1);
+        IERC20(baseDegen).transfer(address(lpMetaLocker), 1);
         vm.stopPrank();
 
-        assertEq(IERC20(baseWeth).balanceOf(address(lpMetaLocker)), 1);
-        uint256 balanceBeforeUSDC = IERC20(baseWeth).balanceOf(
+        assertEq(IERC20(baseDegen).balanceOf(address(lpMetaLocker)), 1);
+        uint256 balanceBeforeUSDC = IERC20(baseDegen).balanceOf(
             clankerTeamOriginalEOA
         );
 
@@ -152,18 +155,18 @@ contract LpMetaLockerTest is Test {
                 proxystudio
             )
         );
-        lpMetaLocker.withdrawERC20(baseWeth, proxystudio);
+        lpMetaLocker.withdrawERC20(baseDegen, proxystudio);
         vm.stopPrank();
 
-        assertEq(IERC20(baseWeth).balanceOf(address(lpMetaLocker)), 1);
+        assertEq(IERC20(baseDegen).balanceOf(address(lpMetaLocker)), 1);
 
         vm.startPrank(clankerTeamOriginalEOA);
-        lpMetaLocker.withdrawERC20(baseWeth, clankerTeamOriginalEOA);
+        lpMetaLocker.withdrawERC20(baseDegen, clankerTeamOriginalEOA);
         vm.stopPrank();
 
-        assertEq(IERC20(baseWeth).balanceOf(address(lpMetaLocker)), 0);
+        assertEq(IERC20(baseDegen).balanceOf(address(lpMetaLocker)), 0);
         assertEq(
-            IERC20(baseWeth).balanceOf(clankerTeamOriginalEOA),
+            IERC20(baseDegen).balanceOf(clankerTeamOriginalEOA),
             balanceBeforeUSDC + 1
         );
     }
@@ -190,7 +193,7 @@ contract LpMetaLockerTest is Test {
         uint256 runnerERC20LockerTokenId = 1119331;
 
         vm.startPrank(clankerTeamOriginalEOA);
-        LpLocker(payable(runnerERC20Locker)).release();
+        OldLpLocker(payable(runnerERC20Locker)).release();
         vm.stopPrank();
 
         // Clanker team EOA should now own the NFT
@@ -265,7 +268,7 @@ contract LpMetaLockerTest is Test {
 
         // Move the runner locker
         vm.startPrank(clankerTeamOriginalEOA);
-        LpLocker(payable(runnerERC20Locker)).release();
+        OldLpLocker(payable(runnerERC20Locker)).release();
         IERC721(positionManager).safeTransferFrom(
             clankerTeamOriginalEOA,
             address(lpMetaLocker),
@@ -273,7 +276,7 @@ contract LpMetaLockerTest is Test {
         );
 
         // Move the friday locker
-        LpLocker(payable(lumERC20Locker)).release();
+        OldLpLocker(payable(lumERC20Locker)).release();
         IERC721(positionManager).safeTransferFrom(
             clankerTeamOriginalEOA,
             address(lpMetaLocker),

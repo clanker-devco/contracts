@@ -67,18 +67,18 @@ interface IUniswapV3Factory {
 
 interface ILockerFactory {
     function deploy(
-        address token,
         address beneficiary,
-        uint64 durationSeconds,
-        uint256 tokenId,
         uint256 fees
     ) external payable returns (address);
 }
 
 interface ILocker {
-    function initializer(uint256 tokenId) external;
+    function initializer(
+        uint256 wethPositionId,
+        uint256 clankerPositionId
+    ) external;
 
-    function collectFees(address _recipient, uint256 _tokenId) external;
+    function collectFees(uint256 _tokenId) external;
 }
 
 struct ExactInputSingleParams {

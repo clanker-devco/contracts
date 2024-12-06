@@ -6,13 +6,6 @@ import {LpLocker} from "./LpLocker.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 contract LockerFactory is Ownable(msg.sender) {
-    event deployed(
-        address indexed lockerAddress,
-        address indexed owner,
-        uint256 tokenId,
-        uint256 lockingPeriod
-    );
-
     address public feeRecipient;
 
     constructor() {
@@ -20,29 +13,10 @@ contract LockerFactory is Ownable(msg.sender) {
     }
 
     function deploy(
-        address token,
         address beneficiary,
-        uint64 durationSeconds,
-        uint256 tokenId,
         uint256 fees
-    ) public payable returns (address) {
-        address newLockerAddress = address(
-            new LpLocker(
-                token,
-                beneficiary,
-                durationSeconds,
-                fees,
-                feeRecipient
-            )
-        );
-
-        if (newLockerAddress == address(0)) {
-            revert("Invalid address");
-        }
-
-        emit deployed(newLockerAddress, beneficiary, tokenId, durationSeconds);
-
-        return newLockerAddress;
+    ) public returns (address) {
+        return address(new LpLocker(beneficiary, fees, feeRecipient));
     }
 
     function setFeeRecipient(address _feeRecipient) public onlyOwner {
