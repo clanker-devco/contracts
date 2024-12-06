@@ -642,6 +642,14 @@ contract ClankerTest is Test {
 
         vm.stopPrank();
 
+        // Get the LP Token IDs for the user
+        uint256[] memory lpTokenIds = LpLockerv2(address(liquidityLocker))
+            .getLpTokenIdsForUser(proxystudio);
+        assertEq(lpTokenIds.length, 2);
+
+        assertEq(lpTokenIds[0], 1260053);
+        assertEq(lpTokenIds[1], 1260054);
+
         // Trade the coin...
         vm.deal(not_proxystudio, 1 ether);
         vm.startPrank(not_proxystudio);
@@ -666,6 +674,12 @@ contract ClankerTest is Test {
 
         LpLockerv2(address(liquidityLocker)).collectFees(1260054);
 
+        // Can't collect fees for a token that doesn't exist
+        vm.expectRevert(
+            abi.encodeWithSelector(LpLockerv2.InvalidTokenId.selector, 1)
+        );
+        LpLockerv2(address(liquidityLocker)).collectFees(1);
+
         vm.stopPrank();
 
         proxystudioBalanceAfter = IERC20(weth).balanceOf(proxystudio);
@@ -674,6 +688,38 @@ contract ClankerTest is Test {
         // Should split the fees...
         assertGt(proxystudioBalanceAfter, proxystudioBalanceBefore);
         assertGt(clankerTeamEoABalanceAfter, clankerTeamEoABalanceBefore);
+
+        // Test with an override fee recipient
+        vm.startPrank(clankerTeamEOA);
+        LpLockerv2(address(liquidityLocker)).setOverrideTeamFeesForToken(
+            1260053,
+            not_proxystudio,
+            50
+        );
+        vm.stopPrank();
+
+        vm.deal(not_proxystudio, 1 ether);
+        vm.startPrank(not_proxystudio);
+        this.initialSwapTokens{value: 1 ether}(token, 100);
+        vm.stopPrank();
+
+        // Get the balance before
+        proxystudioBalanceBefore = IERC20(weth).balanceOf(proxystudio);
+        uint256 notProxystudioBalanceBefore = IERC20(weth).balanceOf(
+            not_proxystudio
+        );
+
+        // Collect fees
+        vm.startPrank(proxystudio);
+        LpLockerv2(address(liquidityLocker)).collectFees(1260053);
+        vm.stopPrank();
+
+        // Check the balances
+        assertGt(IERC20(weth).balanceOf(proxystudio), proxystudioBalanceBefore);
+        assertGt(
+            IERC20(weth).balanceOf(not_proxystudio),
+            notProxystudioBalanceBefore
+        );
     }
 
     function test_claimFees() public {
