@@ -4,6 +4,7 @@ pragma solidity ^0.8.13;
 import {Script, console} from "forge-std/Script.sol";
 import {Clanker} from "../src/Clanker.sol";
 import {LockerFactory} from "../src/LockerFactory.sol";
+import {LpLockerv2} from "../src/LpLockerv2.sol";
 
 contract ClankerScript is Script {
     Clanker public clanker;
@@ -26,17 +27,24 @@ contract ClankerScript is Script {
         vm.startBroadcast(key);
         console.log(abcd);
 
-        LockerFactory lockerFactory = new LockerFactory();
-        lockerFactory.setFeeRecipient(clankerTeamEOA);
-
         clanker = new Clanker(
             weth,
-            address(lockerFactory),
+            address(0),
             uniswapV3Factory,
             positionManager,
             swapRouter,
             clankerTeamEOA
         );
+
+        LpLockerv2 liquidityLocker = new LpLockerv2(
+            address(clanker),
+            positionManager,
+            clankerTeamEOA,
+            60
+        );
+
+        clanker.updateLiquidityLocker(address(liquidityLocker));
+        clanker.setInitialClankerBuyAmount(5 ether);
 
         vm.stopBroadcast();
     }
