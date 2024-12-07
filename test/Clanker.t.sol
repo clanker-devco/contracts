@@ -152,7 +152,6 @@ contract ClankerTest is Test {
         lockerFactory.setFeeRecipient(clankerTeamEOA);
 
         clanker = new Clanker(
-            weth,
             address(0),
             uniswapV3Factory,
             positionManager,

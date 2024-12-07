@@ -28,7 +28,6 @@ contract ClankerScript is Script {
         console.log(abcd);
 
         clanker = new Clanker(
-            weth,
             address(0),
             uniswapV3Factory,
             positionManager,

@@ -41,7 +41,6 @@ contract LpLockerv2Test is Test {
         vm.startPrank(clankerTeamOriginalEOA);
 
         clanker = new Clanker(
-            weth,
             address(0),
             uniswapV3Factory,
             positionManager,

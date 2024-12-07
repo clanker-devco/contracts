@@ -20,7 +20,7 @@ contract Clanker is Ownable {
     LpLockerv2 public liquidityLocker;
     string public constant version = "0.0.2";
 
-    address public weth;
+    address public weth = 0x4200000000000000000000000000000000000006;
     address public clankerToken = 0x1bc0c42215582d5A085795f4baDbaC3ff36d1Bcb;
 
     IUniswapV3Factory public uniswapV3Factory;
@@ -62,14 +62,12 @@ contract Clanker is Ownable {
     }
 
     constructor(
-        address weth_,
         address locker_,
         address uniswapV3Factory_,
         address positionManager_,
         address swapRouter_,
         address owner_
     ) Ownable(owner_) {
-        weth = weth_;
         liquidityLocker = LpLockerv2(locker_);
         uniswapV3Factory = IUniswapV3Factory(uniswapV3Factory_);
         positionManager = INonfungiblePositionManager(positionManager_);
