@@ -231,17 +231,6 @@ contract ClankerTest is Test {
                 not_proxystudio
             )
         );
-        clanker.updateProtocolFees(0);
-
-        // It didn't change
-        assertEq(clanker.lpFeesCut(), 50);
-
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                Ownable.OwnableUnauthorizedAccount.selector,
-                not_proxystudio
-            )
-        );
         clanker.setDeprecated(true);
 
         // It didn't change
@@ -276,9 +265,6 @@ contract ClankerTest is Test {
 
         clanker.updateLiquidityLocker(address(0));
         assertEq(address(clanker.liquidityLocker()), address(0));
-
-        clanker.updateProtocolFees(0);
-        assertEq(clanker.lpFeesCut(), 0);
 
         clanker.setDeprecated(true);
         assertEq(clanker.deprecated(), true);

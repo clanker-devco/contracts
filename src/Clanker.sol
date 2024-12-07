@@ -15,8 +15,6 @@ contract Clanker is Ownable {
     error Deprecated();
     error NotAdmin(address user);
 
-    uint8 public lpFeesCut = 50; // 5 / 100 -> 5%
-    uint8 public protocolCut = 30; // 3 / 100 -> 3%
     LpLockerv2 public liquidityLocker;
     string public constant version = "0.0.2";
 
@@ -305,10 +303,6 @@ contract Clanker is Ownable {
 
     function updateLiquidityLocker(address newLocker) external onlyOwner {
         liquidityLocker = LpLockerv2(newLocker);
-    }
-
-    function updateProtocolFees(uint8 newFee) external onlyOwner {
-        lpFeesCut = newFee;
     }
 }
 
