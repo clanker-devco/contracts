@@ -83,6 +83,10 @@ contract LpLockerv2 is Ownable, IERC721Receiver {
         });
     }
 
+    function updateClankerFactory(address newFactory) public onlyOwner {
+        _factory = newFactory;
+    }
+
     // Update the clanker team fee
     function updateClankerTeamFee(uint256 newFee) public onlyOwner {
         _clankerTeamFee = newFee;
