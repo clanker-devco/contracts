@@ -43,7 +43,6 @@ contract ClankerScript is Script {
         );
 
         clanker.updateLiquidityLocker(address(liquidityLocker));
-        clanker.setInitialClankerBuyAmount(5 ether);
 
         vm.stopBroadcast();
     }

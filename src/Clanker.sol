@@ -13,12 +13,14 @@ contract Clanker is Ownable {
     using TickMath for int24;
 
     error Deprecated();
+    error InvalidConfig();
     error NotAdmin(address user);
 
     LpLockerv2 public liquidityLocker;
     string public constant version = "0.0.2";
 
     address public weth = 0x4200000000000000000000000000000000000006;
+    address public degen = 0x4ed4E862860beD51a9570b96d89aF5E1B0Efefed;
     address public clankerToken = 0x1bc0c42215582d5A085795f4baDbaC3ff36d1Bcb;
 
     IUniswapV3Factory public uniswapV3Factory;
@@ -27,14 +29,24 @@ contract Clanker is Ownable {
 
     bool public deprecated;
 
-    uint256 public initialClankerBuyAmount;
-
     mapping(address => bool) public admins;
+
+    enum PoolType {
+        WETH,
+        CLANKER,
+        DEGEN
+    }
+
+    struct PoolConfig {
+        int24 tick;
+        PoolType poolType;
+    }
 
     struct DeploymentInfo {
         address token;
         uint256 wethPositionId;
         uint256 clankerPositionId;
+        uint256 degenPositionId;
         address locker;
     }
 
@@ -44,6 +56,7 @@ contract Clanker is Ownable {
         address tokenAddress,
         uint256 wethPositionId,
         uint256 clankerPositionId,
+        uint256 degenPositionId,
         address deployer,
         uint256 fid,
         string name,
@@ -78,18 +91,66 @@ contract Clanker is Ownable {
         return tokensDeployedByUsers[user];
     }
 
+    function configurePool(
+        address newToken,
+        address pairedToken,
+        int24 tick,
+        int24 tickSpacing,
+        uint24 fee,
+        uint256 supplyPerPool,
+        address deployer
+    ) internal returns (uint256 positionId) {
+        require(newToken < pairedToken, "Invalid salt");
+
+        uint160 sqrtPriceX96 = tick.getSqrtRatioAtTick();
+
+        // Create pool
+        address pool = uniswapV3Factory.createPool(newToken, pairedToken, fee);
+
+        // Initialize pool
+        IUniswapV3Factory(pool).initialize(sqrtPriceX96);
+
+        INonfungiblePositionManager.MintParams
+            memory params = INonfungiblePositionManager.MintParams(
+                newToken,
+                pairedToken,
+                fee,
+                tick,
+                maxUsableTick(tickSpacing),
+                supplyPerPool,
+                0,
+                0,
+                0,
+                address(this),
+                block.timestamp
+            );
+        (positionId, , , ) = positionManager.mint(params);
+
+        positionManager.safeTransferFrom(
+            address(this),
+            address(liquidityLocker),
+            positionId
+        );
+
+        liquidityLocker.addUserFeeRecipient(
+            LpLockerv2.UserFeeRecipient({
+                recipient: deployer,
+                lpTokenId: positionId
+            })
+        );
+    }
+
     function deployToken(
         string calldata _name,
         string calldata _symbol,
         uint256 _supply,
-        int24 _initialTickWeth,
-        int24 _initialTickClanker,
         uint24 _fee,
         bytes32 _salt,
         address _deployer,
         uint256 _fid,
         string memory _image,
-        string memory _castHash
+        string memory _castHash,
+        PoolConfig[] memory _poolConfigs
     )
         external
         payable
@@ -97,21 +158,20 @@ contract Clanker is Ownable {
         returns (
             ClankerToken token,
             uint256 wethPositionId,
-            uint256 clankerPositionId
+            uint256 clankerPositionId,
+            uint256 degenPositionId
         )
     {
         if (deprecated) revert Deprecated();
 
         int24 tickSpacing = uniswapV3Factory.feeAmountTickSpacing(_fee);
 
-        require(
-            tickSpacing != 0 && _initialTickWeth % tickSpacing == 0,
-            "Invalid tick"
-        );
-        require(
-            tickSpacing != 0 && _initialTickClanker % tickSpacing == 0,
-            "Invalid tick"
-        );
+        for (uint256 i = 0; i < _poolConfigs.length; i++) {
+            require(
+                tickSpacing != 0 && _poolConfigs[i].tick % tickSpacing == 0,
+                "Invalid tick"
+            );
+        }
 
         token = new ClankerToken{salt: keccak256(abi.encode(_deployer, _salt))}(
             _name,
@@ -123,92 +183,44 @@ contract Clanker is Ownable {
             _castHash
         );
 
-        // Makes sure that the token address is less than the WETH address. This is so that the token
-        // is first in the pool. Just makes things consistent.
-        require(address(token) < weth, "Invalid salt");
-        require(address(token) < clankerToken, "Invalid salt");
-
-        uint160 sqrtPriceX96Weth = _initialTickWeth.getSqrtRatioAtTick();
-        uint160 sqrtPriceX96Clanker = _initialTickClanker.getSqrtRatioAtTick();
-
-        // Create weth pool
-        address wethPool = uniswapV3Factory.createPool(
-            address(token),
-            weth,
-            _fee
-        );
-
-        // Create clanker pool
-        address clankerPool = uniswapV3Factory.createPool(
-            address(token),
-            clankerToken,
-            _fee
-        );
-
-        IUniswapV3Factory(wethPool).initialize(sqrtPriceX96Weth);
-        IUniswapV3Factory(clankerPool).initialize(sqrtPriceX96Clanker);
-
-        uint256 halfSupply = _supply / 2;
-
-        INonfungiblePositionManager.MintParams
-            memory wethParams = INonfungiblePositionManager.MintParams(
-                address(token),
-                weth,
-                _fee,
-                _initialTickWeth,
-                maxUsableTick(tickSpacing),
-                halfSupply,
-                0,
-                0,
-                0,
-                address(this),
-                block.timestamp
-            );
-
-        INonfungiblePositionManager.MintParams
-            memory clankerParams = INonfungiblePositionManager.MintParams(
-                address(token),
-                clankerToken,
-                _fee,
-                _initialTickClanker,
-                maxUsableTick(tickSpacing),
-                halfSupply,
-                0,
-                0,
-                0,
-                address(this),
-                block.timestamp
-            );
-
+        uint256 supplyPerPool = _supply / _poolConfigs.length;
         token.approve(address(positionManager), _supply);
-        (wethPositionId, , , ) = positionManager.mint(wethParams);
-        (clankerPositionId, , , ) = positionManager.mint(clankerParams);
 
-        positionManager.safeTransferFrom(
-            address(this),
-            address(liquidityLocker),
-            wethPositionId
-        );
-        positionManager.safeTransferFrom(
-            address(this),
-            address(liquidityLocker),
-            clankerPositionId
-        );
+        for (uint256 i = 0; i < _poolConfigs.length; i++) {
+            if (_poolConfigs[i].poolType == PoolType.WETH) {
+                wethPositionId = configurePool(
+                    address(token),
+                    weth,
+                    _poolConfigs[i].tick,
+                    tickSpacing,
+                    _fee,
+                    supplyPerPool,
+                    _deployer
+                );
+            } else if (_poolConfigs[i].poolType == PoolType.CLANKER) {
+                clankerPositionId = configurePool(
+                    address(token),
+                    clankerToken,
+                    _poolConfigs[i].tick,
+                    tickSpacing,
+                    _fee,
+                    supplyPerPool,
+                    _deployer
+                );
+            } else if (_poolConfigs[i].poolType == PoolType.DEGEN) {
+                degenPositionId = configurePool(
+                    address(token),
+                    degen,
+                    _poolConfigs[i].tick,
+                    tickSpacing,
+                    _fee,
+                    supplyPerPool,
+                    _deployer
+                );
+            }
+        }
 
-        liquidityLocker.addUserFeeRecipient(
-            LpLockerv2.UserFeeRecipient({
-                recipient: _deployer,
-                lpTokenId: wethPositionId
-            })
-        );
-
-        liquidityLocker.addUserFeeRecipient(
-            LpLockerv2.UserFeeRecipient({
-                recipient: _deployer,
-                lpTokenId: clankerPositionId
-            })
-        );
-
+        // Only on the weth pool
         if (msg.value > 0) {
             ExactInputSingleParams memory swapParamsTokenWeth = ExactInputSingleParams({
                 tokenIn: weth, // The token we are exchanging from (ETH wrapped as WETH)
@@ -224,28 +236,6 @@ contract Clanker is Ownable {
             ISwapRouter(swapRouter).exactInputSingle{value: msg.value}(
                 swapParamsTokenWeth
             );
-
-            IERC20(clankerToken).transferFrom(
-                msg.sender,
-                address(this),
-                initialClankerBuyAmount
-            );
-
-            // Buy some token with the clanker
-            ExactInputSingleParams memory swapParamsTokenClanker = ExactInputSingleParams({
-                tokenIn: clankerToken, // The token we are exchanging from (ETH wrapped as WETH)
-                tokenOut: address(token), // The token we are exchanging to
-                fee: _fee, // The pool fee
-                recipient: _deployer, // The recipient address
-                amountIn: initialClankerBuyAmount, // The amount of CLANKER to be swapped
-                amountOutMinimum: 0, // Minimum amount to receive
-                sqrtPriceLimitX96: 0 // No price limit
-            });
-
-            // Approve clanker to the swap router
-            IERC20(clankerToken).approve(swapRouter, initialClankerBuyAmount);
-
-            ISwapRouter(swapRouter).exactInputSingle(swapParamsTokenClanker);
         }
 
         tokensDeployedByUsers[_deployer].push(
@@ -253,6 +243,7 @@ contract Clanker is Ownable {
                 token: address(token),
                 wethPositionId: wethPositionId,
                 clankerPositionId: clankerPositionId,
+                degenPositionId: degenPositionId,
                 locker: address(liquidityLocker)
             })
         );
@@ -261,6 +252,7 @@ contract Clanker is Ownable {
             address(token),
             wethPositionId,
             clankerPositionId,
+            degenPositionId,
             _deployer,
             _fid,
             _name,
@@ -269,10 +261,6 @@ contract Clanker is Ownable {
             address(liquidityLocker),
             _castHash
         );
-    }
-
-    function setInitialClankerBuyAmount(uint256 amount) external onlyOwner {
-        initialClankerBuyAmount = amount;
     }
 
     function setAdmin(address admin, bool isAdmin) external onlyOwner {
@@ -293,8 +281,15 @@ contract Clanker is Ownable {
 
         if (!found) revert("Token not found");
 
-        ILocker(tokenInfo.locker).collectFees(tokenInfo.wethPositionId);
-        ILocker(tokenInfo.locker).collectFees(tokenInfo.clankerPositionId);
+        if (tokenInfo.wethPositionId != 0) {
+            ILocker(tokenInfo.locker).collectFees(tokenInfo.wethPositionId);
+        }
+        if (tokenInfo.clankerPositionId != 0) {
+            ILocker(tokenInfo.locker).collectFees(tokenInfo.clankerPositionId);
+        }
+        if (tokenInfo.degenPositionId != 0) {
+            ILocker(tokenInfo.locker).collectFees(tokenInfo.degenPositionId);
+        }
     }
 
     function setDeprecated(bool _deprecated) external onlyOwner {
