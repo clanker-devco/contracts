@@ -141,6 +141,47 @@ contract ClankerTest is Test {
         ISwapRouter(swapRouter).exactInputSingle{value: msg.value}(swapParams);
     }
 
+    function initialSwapTokensClankerPool(
+        address token,
+        uint24 _fee
+    ) public payable {
+        // Buy clanker
+        ExactInputSingleParams memory swapParams = ExactInputSingleParams({
+            tokenIn: weth, // The token we are exchanging from (ETH wrapped as WETH)
+            tokenOut: clankerToken, // The token we are exchanging to
+            fee: 10000, // The pool fee
+            recipient: msg.sender, // The recipient address
+            amountIn: msg.value, // The amount of ETH (WETH) to be swapped
+            amountOutMinimum: 0, // Minimum amount of DAI to receive
+            sqrtPriceLimitX96: 0 // No price limit
+        });
+
+        // The call to `exactInputSingle` executes the swap.
+        uint256 amountOut = ISwapRouter(swapRouter).exactInputSingle{
+            value: msg.value
+        }(swapParams);
+
+        assertEq(amountOut, 52928283830399435859);
+
+        assertEq(msg.sender, 0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496);
+
+        // Approve the clanker to swapRouter
+        IERC20(clankerToken).approve(address(swapRouter), type(uint256).max);
+
+        swapParams = ExactInputSingleParams({
+            tokenIn: clankerToken, // The token we are exchanging from (ETH wrapped as WETH)
+            tokenOut: address(token), // The token we are exchanging to
+            fee: _fee, // The pool fee
+            recipient: msg.sender, // The recipient address
+            amountIn: amountOut, // The amount of ETH (WETH) to be swapped
+            amountOutMinimum: 0, // Minimum amount of DAI to receive
+            sqrtPriceLimitX96: 0 // No price limit
+        });
+
+        // The call to `exactInputSingle` executes the swap.
+        ISwapRouter(swapRouter).exactInputSingle(swapParams);
+    }
+
     //////////////////////////////////////////////////////////////
 
     function setUp() public {
@@ -478,6 +519,210 @@ contract ClankerTest is Test {
             exampleCastHash,
             poolConfigs
         );
+
+        vm.stopPrank();
+    }
+
+    function test_deployTokenClankerPoolOnly() public {
+        vm.startPrank(clankerTeamEOA);
+        vm.warp(block.timestamp + 1);
+
+        vm.deal(clankerTeamEOA, 10 ether);
+
+        Clanker.PoolConfig[] memory poolConfigs = new Clanker.PoolConfig[](1);
+        poolConfigs[0] = Clanker.PoolConfig({
+            tick: 1,
+            poolType: Clanker.PoolType.CLANKER
+        });
+
+        // Try to deploy with an invalid fee amount leading to an invalid tick
+
+        // Fee of 10 is invalid (this is 0.1%)
+        vm.expectRevert("Invalid tick");
+        clanker.deployToken(
+            "proxystudio",
+            "WKND",
+            1 ether,
+            10,
+            bytes32(0),
+            proxystudio,
+            proxystudio_fid,
+            clankerImage,
+            exampleCastHash,
+            poolConfigs
+        );
+
+        // A token address greater than WETH is invalid
+        vm.expectRevert("Invalid salt");
+        clanker.deployToken(
+            "proxystudio",
+            "WKND",
+            1 ether,
+            100,
+            bytes32(
+                0x0000000000000000000000000000000000000000000000000000000000000002
+            ),
+            proxystudio,
+            proxystudio_fid,
+            clankerImage,
+            exampleCastHash,
+            poolConfigs
+        );
+
+        // Make a valid salt...
+        (bytes32 salt, address token) = this.generateSalt(
+            proxystudio,
+            proxystudio_fid,
+            "proxystudio",
+            "WKND",
+            clankerImage,
+            exampleCastHash,
+            1 ether
+        );
+
+        // Deploy the token without value
+        vm.startPrank(clankerTeamEOA);
+        clanker.deployToken(
+            "proxystudio",
+            "WKND",
+            1 ether,
+            100,
+            salt,
+            proxystudio,
+            proxystudio_fid,
+            clankerImage,
+            exampleCastHash,
+            poolConfigs
+        );
+
+        // All the token's data is correct
+        ClankerToken tokenContract = ClankerToken(token);
+        assertEq(tokenContract.name(), "proxystudio");
+        assertEq(tokenContract.symbol(), "WKND");
+        assertEq(tokenContract.totalSupply(), 1 ether);
+        assertEq(tokenContract.deployer(), proxystudio);
+        assertEq(tokenContract.fid(), proxystudio_fid);
+        assertEq(tokenContract.image(), clankerImage);
+        assertEq(tokenContract.castHash(), exampleCastHash);
+        assertEq(tokenContract.decimals(), 18);
+
+        // Check the tokensDeployedByUsers mapping
+        Clanker.DeploymentInfo[] memory deployments = clanker
+            .getTokensDeployedByUser(proxystudio);
+        assertEq(deployments.length, 1);
+        assertEq(deployments[0].token, token);
+        assertEq(deployments[0].wethPositionId, 0);
+        assertEq(deployments[0].clankerPositionId, 1260053);
+        assertEq(deployments[0].degenPositionId, 0);
+        assertEq(deployments[0].locker, address(liquidityLocker));
+
+        // The deployer (proxystudio) can update the image
+        vm.startPrank(proxystudio);
+        tokenContract.updateImage("new image");
+        vm.stopPrank();
+
+        assertEq(tokenContract.image(), "new image");
+
+        // No one else can update the image
+        vm.startPrank(not_proxystudio);
+        vm.expectRevert(ClankerToken.NotDeployer.selector);
+        tokenContract.updateImage("new image 2");
+        vm.stopPrank();
+
+        // Image still the same
+        assertEq(tokenContract.image(), "new image");
+
+        // Buy the token from the clanker pool
+        // vm.startPrank(not_proxystudio);
+        // vm.deal(not_proxystudio, 2 ether);
+        // this.initialSwapTokensClankerPool{value: 1 ether}(token, 100);
+        // vm.stopPrank();
+
+        // // Collect fees
+        // vm.startPrank(proxystudio);
+        // clanker.claimFees(token);
+        // vm.stopPrank();
+
+        vm.stopPrank();
+    }
+
+    function test_deployAllPools() public {
+        vm.startPrank(clankerTeamEOA);
+        vm.warp(block.timestamp + 1);
+
+        vm.deal(clankerTeamEOA, 10 ether);
+
+        Clanker.PoolConfig[] memory poolConfigs = new Clanker.PoolConfig[](3);
+        poolConfigs[0] = Clanker.PoolConfig({
+            tick: 1,
+            poolType: Clanker.PoolType.CLANKER
+        });
+        poolConfigs[1] = Clanker.PoolConfig({
+            tick: 1,
+            poolType: Clanker.PoolType.WETH
+        });
+        poolConfigs[2] = Clanker.PoolConfig({
+            tick: 1,
+            poolType: Clanker.PoolType.DEGEN
+        });
+
+        // Make a valid salt...
+        (bytes32 salt, address token) = this.generateSalt(
+            proxystudio,
+            proxystudio_fid,
+            "proxystudio",
+            "WKND",
+            clankerImage,
+            exampleCastHash,
+            1 ether
+        );
+
+        // Deploy the token without value
+        vm.startPrank(clankerTeamEOA);
+        clanker.deployToken(
+            "proxystudio",
+            "WKND",
+            1 ether,
+            100,
+            salt,
+            proxystudio,
+            proxystudio_fid,
+            clankerImage,
+            exampleCastHash,
+            poolConfigs
+        );
+
+        // All the token's data is correct
+        ClankerToken tokenContract = ClankerToken(token);
+        assertEq(tokenContract.name(), "proxystudio");
+        assertEq(tokenContract.symbol(), "WKND");
+        assertEq(tokenContract.totalSupply(), 1 ether);
+        assertEq(tokenContract.deployer(), proxystudio);
+        assertEq(tokenContract.fid(), proxystudio_fid);
+        assertEq(tokenContract.image(), clankerImage);
+        assertEq(tokenContract.castHash(), exampleCastHash);
+        assertEq(tokenContract.decimals(), 18);
+
+        // Check the tokensDeployedByUsers mapping
+        Clanker.DeploymentInfo[] memory deployments = clanker
+            .getTokensDeployedByUser(proxystudio);
+        assertEq(deployments.length, 1);
+        assertEq(deployments[0].token, token);
+        assertEq(deployments[0].wethPositionId, 1260054);
+        assertEq(deployments[0].clankerPositionId, 1260053);
+        assertEq(deployments[0].degenPositionId, 1260055);
+        assertEq(deployments[0].locker, address(liquidityLocker));
+
+        // Buy the token from the clanker pool
+        // vm.startPrank(not_proxystudio);
+        // vm.deal(not_proxystudio, 2 ether);
+        // this.initialSwapTokensClankerPool{value: 1 ether}(token, 100);
+        // vm.stopPrank();
+
+        // // Collect fees
+        // vm.startPrank(proxystudio);
+        // clanker.claimFees(token);
+        // vm.stopPrank();
 
         vm.stopPrank();
     }

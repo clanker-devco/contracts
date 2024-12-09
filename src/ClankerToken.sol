@@ -8,6 +8,8 @@ import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC2
 import {Nonces} from "@openzeppelin/contracts/utils/Nonces.sol";
 
 contract ClankerToken is ERC20, ERC20Permit, ERC20Votes, ERC20Burnable {
+    error NotDeployer();
+
     string private _name;
     string private _symbol;
     uint8 private immutable _decimals;
@@ -31,6 +33,13 @@ contract ClankerToken is ERC20, ERC20Permit, ERC20Votes, ERC20Burnable {
         _image = image_;
         _castHash = castHash_;
         _mint(msg.sender, maxSupply_);
+    }
+
+    function updateImage(string memory image_) public {
+        if (msg.sender != _deployer) {
+            revert NotDeployer();
+        }
+        _image = image_;
     }
 
     function _update(
