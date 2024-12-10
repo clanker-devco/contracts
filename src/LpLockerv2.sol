@@ -44,7 +44,6 @@ contract LpLockerv2 is Ownable, IERC721Receiver {
         uint256 lpTokenId;
     }
 
-    UserFeeRecipient[] public _userFeeRecipients;
     mapping(uint256 => UserFeeRecipient) public _userFeeRecipientForToken;
     mapping(uint256 => TeamFeeRecipient)
         public _teamOverrideFeeRecipientForToken;
@@ -197,8 +196,36 @@ contract LpLockerv2 is Ownable, IERC721Receiver {
     function addUserFeeRecipient(
         UserFeeRecipient memory recipient
     ) public onlyOwnerOrFactory {
-        _userFeeRecipients.push(recipient);
         _userFeeRecipientForToken[recipient.lpTokenId] = recipient;
+        _userTokenIds[recipient.recipient].push(recipient.lpTokenId);
+    }
+
+    function replaceUserFeeRecipient(UserFeeRecipient memory recipient) public {
+        // Get the old recipient
+        UserFeeRecipient memory oldRecipient = _userFeeRecipientForToken[
+            recipient.lpTokenId
+        ];
+
+        // Only owner or recipient can replace the fee recipient
+        if (msg.sender != owner() && msg.sender != oldRecipient.recipient) {
+            revert NotAllowed(msg.sender);
+        }
+
+        // Remove the old recipient
+        delete _userFeeRecipientForToken[recipient.lpTokenId];
+
+        // Remove the old tokenId from _userTokenIds
+        uint256[] memory tokenIds = _userTokenIds[recipient.recipient];
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            if (tokenIds[i] == recipient.lpTokenId) {
+                delete _userTokenIds[recipient.recipient][i];
+            }
+        }
+
+        // Add the new recipient
+        _userFeeRecipientForToken[recipient.lpTokenId] = recipient;
+
+        // Add the new tokenId to _userTokenIds
         _userTokenIds[recipient.recipient].push(recipient.lpTokenId);
     }
 
