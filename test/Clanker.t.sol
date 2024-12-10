@@ -234,18 +234,20 @@ contract ClankerTest is Test {
 
     function test_generateSalt() public {
         // Generate a salt as if proxystudio deployed a token
-        (, address token) = this.generateSalt(
-            proxystudio,
-            proxystudio_fid,
-            "proxystudio",
-            "WKND",
-            clankerImage,
-            exampleCastHash,
-            1 ether
+        (bytes32 salt, address token) = this.generateSalt(
+            0x8865910d6ca985782Dc9CC521d23a10100fC800B,
+            211845,
+            "test",
+            "tt",
+            " ",
+            "0xcf27a12ab3d2859ad56e3432c958019ea9cc8abb",
+            1000000000 ether
         );
 
         assertTrue(token != address(0));
         assertTrue(token < weth);
+
+        // assertEq(salt, bytes32(0));
     }
 
     function test_ownerOnlyFunctions() public {
@@ -311,8 +313,7 @@ contract ClankerTest is Test {
 
         vm.deal(clankerTeamEOA, 10 ether);
 
-        Clanker.PoolConfig[] memory poolConfigs = new Clanker.PoolConfig[](1);
-        poolConfigs[0] = Clanker.PoolConfig({
+        Clanker.PoolConfig memory poolConfig = Clanker.PoolConfig({
             tick: 1,
             poolType: Clanker.PoolType.WETH
         });
@@ -331,7 +332,7 @@ contract ClankerTest is Test {
             proxystudio_fid,
             clankerImage,
             exampleCastHash,
-            poolConfigs
+            poolConfig
         );
 
         // A token address greater than WETH is invalid
@@ -348,7 +349,7 @@ contract ClankerTest is Test {
             proxystudio_fid,
             clankerImage,
             exampleCastHash,
-            poolConfigs
+            poolConfig
         );
 
         // Make a valid salt...
@@ -361,7 +362,6 @@ contract ClankerTest is Test {
             exampleCastHash,
             1 ether
         );
-
         assertTrue(token < weth);
 
         // Deploy the token without value
@@ -376,7 +376,7 @@ contract ClankerTest is Test {
             proxystudio_fid,
             clankerImage,
             exampleCastHash,
-            poolConfigs
+            poolConfig
         );
 
         // All the token's data is correct
@@ -395,9 +395,7 @@ contract ClankerTest is Test {
             .getTokensDeployedByUser(proxystudio);
         assertEq(deployments.length, 1);
         assertEq(deployments[0].token, token);
-        assertEq(deployments[0].wethPositionId, 1260053);
-        assertEq(deployments[0].clankerPositionId, 0);
-        assertEq(deployments[0].degenPositionId, 0);
+        assertEq(deployments[0].positionId, 1260053);
         assertEq(deployments[0].locker, address(liquidityLocker));
 
         // Cannot deploy again with the same salt
@@ -412,7 +410,7 @@ contract ClankerTest is Test {
             proxystudio_fid,
             clankerImage,
             exampleCastHash,
-            poolConfigs
+            poolConfig
         );
 
         vm.deal(proxystudio, 1 ether);
@@ -467,7 +465,7 @@ contract ClankerTest is Test {
             proxystudio_fid,
             clankerImage,
             exampleCastHash,
-            poolConfigs
+            poolConfig
         );
 
         vm.stopPrank();
@@ -497,7 +495,7 @@ contract ClankerTest is Test {
             proxystudio_fid,
             clankerImage,
             exampleCastHash,
-            poolConfigs
+            poolConfig
         );
 
         // Undeprecate the factory
@@ -517,7 +515,7 @@ contract ClankerTest is Test {
             proxystudio_fid,
             clankerImage,
             exampleCastHash,
-            poolConfigs
+            poolConfig
         );
 
         vm.stopPrank();
@@ -529,8 +527,7 @@ contract ClankerTest is Test {
 
         vm.deal(clankerTeamEOA, 10 ether);
 
-        Clanker.PoolConfig[] memory poolConfigs = new Clanker.PoolConfig[](1);
-        poolConfigs[0] = Clanker.PoolConfig({
+        Clanker.PoolConfig memory poolConfig = Clanker.PoolConfig({
             tick: 1,
             poolType: Clanker.PoolType.CLANKER
         });
@@ -549,7 +546,7 @@ contract ClankerTest is Test {
             proxystudio_fid,
             clankerImage,
             exampleCastHash,
-            poolConfigs
+            poolConfig
         );
 
         // A token address greater than WETH is invalid
@@ -566,7 +563,7 @@ contract ClankerTest is Test {
             proxystudio_fid,
             clankerImage,
             exampleCastHash,
-            poolConfigs
+            poolConfig
         );
 
         // Make a valid salt...
@@ -592,7 +589,7 @@ contract ClankerTest is Test {
             proxystudio_fid,
             clankerImage,
             exampleCastHash,
-            poolConfigs
+            poolConfig
         );
 
         // All the token's data is correct
@@ -611,9 +608,7 @@ contract ClankerTest is Test {
             .getTokensDeployedByUser(proxystudio);
         assertEq(deployments.length, 1);
         assertEq(deployments[0].token, token);
-        assertEq(deployments[0].wethPositionId, 0);
-        assertEq(deployments[0].clankerPositionId, 1260053);
-        assertEq(deployments[0].degenPositionId, 0);
+        assertEq(deployments[0].positionId, 1260053);
         assertEq(deployments[0].locker, address(liquidityLocker));
 
         // The deployer (proxystudio) can update the image
@@ -646,94 +641,12 @@ contract ClankerTest is Test {
         vm.stopPrank();
     }
 
-    function test_deployAllPools() public {
-        vm.startPrank(clankerTeamEOA);
-        vm.warp(block.timestamp + 1);
-
-        vm.deal(clankerTeamEOA, 10 ether);
-
-        Clanker.PoolConfig[] memory poolConfigs = new Clanker.PoolConfig[](3);
-        poolConfigs[0] = Clanker.PoolConfig({
-            tick: 1,
-            poolType: Clanker.PoolType.CLANKER
-        });
-        poolConfigs[1] = Clanker.PoolConfig({
-            tick: 1,
-            poolType: Clanker.PoolType.WETH
-        });
-        poolConfigs[2] = Clanker.PoolConfig({
-            tick: 1,
-            poolType: Clanker.PoolType.DEGEN
-        });
-
-        // Make a valid salt...
-        (bytes32 salt, address token) = this.generateSalt(
-            proxystudio,
-            proxystudio_fid,
-            "proxystudio",
-            "WKND",
-            clankerImage,
-            exampleCastHash,
-            1 ether
-        );
-
-        // Deploy the token without value
-        vm.startPrank(clankerTeamEOA);
-        clanker.deployToken(
-            "proxystudio",
-            "WKND",
-            1 ether,
-            100,
-            salt,
-            proxystudio,
-            proxystudio_fid,
-            clankerImage,
-            exampleCastHash,
-            poolConfigs
-        );
-
-        // All the token's data is correct
-        ClankerToken tokenContract = ClankerToken(token);
-        assertEq(tokenContract.name(), "proxystudio");
-        assertEq(tokenContract.symbol(), "WKND");
-        assertEq(tokenContract.totalSupply(), 1 ether);
-        assertEq(tokenContract.deployer(), proxystudio);
-        assertEq(tokenContract.fid(), proxystudio_fid);
-        assertEq(tokenContract.image(), clankerImage);
-        assertEq(tokenContract.castHash(), exampleCastHash);
-        assertEq(tokenContract.decimals(), 18);
-
-        // Check the tokensDeployedByUsers mapping
-        Clanker.DeploymentInfo[] memory deployments = clanker
-            .getTokensDeployedByUser(proxystudio);
-        assertEq(deployments.length, 1);
-        assertEq(deployments[0].token, token);
-        assertEq(deployments[0].wethPositionId, 1260054);
-        assertEq(deployments[0].clankerPositionId, 1260053);
-        assertEq(deployments[0].degenPositionId, 1260055);
-        assertEq(deployments[0].locker, address(liquidityLocker));
-
-        // Buy the token from the clanker pool
-        // vm.startPrank(not_proxystudio);
-        // vm.deal(not_proxystudio, 2 ether);
-        // this.initialSwapTokensClankerPool{value: 1 ether}(token, 100);
-        // vm.stopPrank();
-
-        // // Collect fees
-        // vm.startPrank(proxystudio);
-        // clanker.claimFees(token);
-        // vm.stopPrank();
-
-        vm.stopPrank();
-    }
-
     function test_specificNewSaltBehavior() public {
         // Create a token with a salt for deployer, should be the same token as expected...
         vm.selectFork(baseFork);
         vm.warp(block.timestamp + 1);
 
-        Clanker.PoolConfig[] memory poolConfigs = new Clanker.PoolConfig[](1);
-        poolConfigs[0] = Clanker.PoolConfig({
+        Clanker.PoolConfig memory poolConfig = Clanker.PoolConfig({
             tick: 1,
             poolType: Clanker.PoolType.WETH
         });
@@ -755,8 +668,6 @@ contract ClankerTest is Test {
         emit Clanker.TokenCreated(
             token,
             1260053,
-            0,
-            0,
             proxystudio,
             proxystudio_fid,
             "proxystudio",
@@ -776,7 +687,7 @@ contract ClankerTest is Test {
             proxystudio_fid,
             clankerImage,
             exampleCastHash,
-            poolConfigs
+            poolConfig
         );
 
         vm.stopPrank();
@@ -812,8 +723,7 @@ contract ClankerTest is Test {
         vm.warp(block.timestamp + 1);
         vm.roll(23054702);
 
-        Clanker.PoolConfig[] memory poolConfigs = new Clanker.PoolConfig[](1);
-        poolConfigs[0] = Clanker.PoolConfig({
+        Clanker.PoolConfig memory poolConfig = Clanker.PoolConfig({
             tick: 1,
             poolType: Clanker.PoolType.WETH
         });
@@ -840,8 +750,6 @@ contract ClankerTest is Test {
         emit Clanker.TokenCreated(
             token,
             1260053,
-            0,
-            0,
             proxystudio,
             proxystudio_fid,
             "proxystudio",
@@ -862,7 +770,7 @@ contract ClankerTest is Test {
             proxystudio_fid,
             clankerImage,
             exampleCastHash,
-            poolConfigs
+            poolConfig
         );
 
         vm.stopPrank();
@@ -949,8 +857,7 @@ contract ClankerTest is Test {
         vm.warp(block.timestamp + 1);
         vm.roll(23054702);
 
-        Clanker.PoolConfig[] memory poolConfigs = new Clanker.PoolConfig[](1);
-        poolConfigs[0] = Clanker.PoolConfig({
+        Clanker.PoolConfig memory poolConfig = Clanker.PoolConfig({
             tick: 1,
             poolType: Clanker.PoolType.WETH
         });
@@ -976,8 +883,6 @@ contract ClankerTest is Test {
         emit Clanker.TokenCreated(
             token,
             1260053,
-            0,
-            0,
             proxystudio,
             proxystudio_fid,
             "proxystudio",
@@ -998,7 +903,7 @@ contract ClankerTest is Test {
             proxystudio_fid,
             clankerImage,
             exampleCastHash,
-            poolConfigs
+            poolConfig
         );
 
         vm.stopPrank();
@@ -1036,9 +941,7 @@ contract ClankerTest is Test {
             .getTokensDeployedByUser(proxystudio);
         assertEq(deployments.length, 1);
         assertEq(deployments[0].token, token);
-        assertEq(deployments[0].wethPositionId, 1260053);
-        assertEq(deployments[0].clankerPositionId, 0);
-        assertEq(deployments[0].degenPositionId, 0);
+        assertEq(deployments[0].positionId, 1260053);
         assertEq(deployments[0].locker, address(liquidityLocker));
         clanker.claimFees(token);
 

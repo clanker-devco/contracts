@@ -22,6 +22,7 @@ contract Clanker is Ownable {
     address public weth = 0x4200000000000000000000000000000000000006;
     address public degen = 0x4ed4E862860beD51a9570b96d89aF5E1B0Efefed;
     address public clankerToken = 0x1bc0c42215582d5A085795f4baDbaC3ff36d1Bcb;
+    address public higher = 0x0578d8A44db98B23BF096A382e016e29a5Ce0ffe;
 
     IUniswapV3Factory public uniswapV3Factory;
     INonfungiblePositionManager public positionManager;
@@ -34,7 +35,8 @@ contract Clanker is Ownable {
     enum PoolType {
         WETH,
         CLANKER,
-        DEGEN
+        DEGEN,
+        HIGHER
     }
 
     struct PoolConfig {
@@ -44,9 +46,7 @@ contract Clanker is Ownable {
 
     struct DeploymentInfo {
         address token;
-        uint256 wethPositionId;
-        uint256 clankerPositionId;
-        uint256 degenPositionId;
+        uint256 positionId;
         address locker;
     }
 
@@ -54,9 +54,7 @@ contract Clanker is Ownable {
 
     event TokenCreated(
         address tokenAddress,
-        uint256 wethPositionId,
-        uint256 clankerPositionId,
-        uint256 degenPositionId,
+        uint256 positionId,
         address deployer,
         uint256 fid,
         string name,
@@ -150,28 +148,20 @@ contract Clanker is Ownable {
         uint256 _fid,
         string memory _image,
         string memory _castHash,
-        PoolConfig[] memory _poolConfigs
+        PoolConfig memory _poolConfig
     )
         external
         payable
         onlyOwnerOrAdmin
-        returns (
-            ClankerToken token,
-            uint256 wethPositionId,
-            uint256 clankerPositionId,
-            uint256 degenPositionId
-        )
+        returns (ClankerToken token, uint256 positionId)
     {
         if (deprecated) revert Deprecated();
 
         int24 tickSpacing = uniswapV3Factory.feeAmountTickSpacing(_fee);
-
-        for (uint256 i = 0; i < _poolConfigs.length; i++) {
-            require(
-                tickSpacing != 0 && _poolConfigs[i].tick % tickSpacing == 0,
-                "Invalid tick"
-            );
-        }
+        require(
+            tickSpacing != 0 && _poolConfig.tick % tickSpacing == 0,
+            "Invalid tick"
+        );
 
         token = new ClankerToken{salt: keccak256(abi.encode(_deployer, _salt))}(
             _name,
@@ -183,41 +173,48 @@ contract Clanker is Ownable {
             _castHash
         );
 
-        uint256 supplyPerPool = _supply / _poolConfigs.length;
         token.approve(address(positionManager), _supply);
 
-        for (uint256 i = 0; i < _poolConfigs.length; i++) {
-            if (_poolConfigs[i].poolType == PoolType.WETH) {
-                wethPositionId = configurePool(
-                    address(token),
-                    weth,
-                    _poolConfigs[i].tick,
-                    tickSpacing,
-                    _fee,
-                    supplyPerPool,
-                    _deployer
-                );
-            } else if (_poolConfigs[i].poolType == PoolType.CLANKER) {
-                clankerPositionId = configurePool(
-                    address(token),
-                    clankerToken,
-                    _poolConfigs[i].tick,
-                    tickSpacing,
-                    _fee,
-                    supplyPerPool,
-                    _deployer
-                );
-            } else if (_poolConfigs[i].poolType == PoolType.DEGEN) {
-                degenPositionId = configurePool(
-                    address(token),
-                    degen,
-                    _poolConfigs[i].tick,
-                    tickSpacing,
-                    _fee,
-                    supplyPerPool,
-                    _deployer
-                );
-            }
+        if (_poolConfig.poolType == PoolType.WETH) {
+            positionId = configurePool(
+                address(token),
+                weth,
+                _poolConfig.tick,
+                tickSpacing,
+                _fee,
+                _supply,
+                _deployer
+            );
+        } else if (_poolConfig.poolType == PoolType.CLANKER) {
+            positionId = configurePool(
+                address(token),
+                clankerToken,
+                _poolConfig.tick,
+                tickSpacing,
+                _fee,
+                _supply,
+                _deployer
+            );
+        } else if (_poolConfig.poolType == PoolType.DEGEN) {
+            positionId = configurePool(
+                address(token),
+                degen,
+                _poolConfig.tick,
+                tickSpacing,
+                _fee,
+                _supply,
+                _deployer
+            );
+        } else if (_poolConfig.poolType == PoolType.HIGHER) {
+            positionId = configurePool(
+                address(token),
+                higher,
+                _poolConfig.tick,
+                tickSpacing,
+                _fee,
+                _supply,
+                _deployer
+            );
         }
 
         // Only on the weth pool
@@ -241,18 +238,14 @@ contract Clanker is Ownable {
         tokensDeployedByUsers[_deployer].push(
             DeploymentInfo({
                 token: address(token),
-                wethPositionId: wethPositionId,
-                clankerPositionId: clankerPositionId,
-                degenPositionId: degenPositionId,
+                positionId: positionId,
                 locker: address(liquidityLocker)
             })
         );
 
         emit TokenCreated(
             address(token),
-            wethPositionId,
-            clankerPositionId,
-            degenPositionId,
+            positionId,
             _deployer,
             _fid,
             _name,
@@ -281,15 +274,7 @@ contract Clanker is Ownable {
 
         if (!found) revert("Token not found");
 
-        if (tokenInfo.wethPositionId != 0) {
-            ILocker(tokenInfo.locker).collectFees(tokenInfo.wethPositionId);
-        }
-        if (tokenInfo.clankerPositionId != 0) {
-            ILocker(tokenInfo.locker).collectFees(tokenInfo.clankerPositionId);
-        }
-        if (tokenInfo.degenPositionId != 0) {
-            ILocker(tokenInfo.locker).collectFees(tokenInfo.degenPositionId);
-        }
+        ILocker(tokenInfo.locker).collectFees(tokenInfo.positionId);
     }
 
     function setDeprecated(bool _deprecated) external onlyOwner {
