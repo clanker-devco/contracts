@@ -528,7 +528,7 @@ contract ClankerTest is Test {
         vm.deal(clankerTeamEOA, 10 ether);
 
         Clanker.PoolConfig memory poolConfig = Clanker.PoolConfig({
-            tick: 1,
+            tick: -230400,
             poolType: Clanker.PoolType.CLANKER
         });
 
@@ -579,11 +579,11 @@ contract ClankerTest is Test {
 
         // Deploy the token without value
         vm.startPrank(clankerTeamEOA);
-        clanker.deployToken(
+        clanker.deployToken{value: 0.1 ether}(
             "proxystudio",
             "WKND",
             1 ether,
-            100,
+            10000,
             salt,
             proxystudio,
             proxystudio_fid,

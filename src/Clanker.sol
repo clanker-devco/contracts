@@ -239,7 +239,16 @@ contract Clanker is Ownable {
                     value: msg.value
                 }(swapParams);
 
-                token.approve(address(positionManager), amountOut);
+                IERC20(
+                    _poolConfig.poolType == PoolType.CLANKER
+                        ? clankerToken
+                        : _poolConfig.poolType == PoolType.DEGEN
+                        ? degen
+                        : higher
+                ).approve(
+                        address(swapRouter),
+                        0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+                    );
             }
 
             ExactInputSingleParams memory swapParamsToken = ExactInputSingleParams({
