@@ -217,22 +217,51 @@ contract Clanker is Ownable {
             );
         }
 
-        // Only on the weth pool
         if (msg.value > 0) {
-            ExactInputSingleParams memory swapParamsTokenWeth = ExactInputSingleParams({
-                tokenIn: weth, // The token we are exchanging from (ETH wrapped as WETH)
+            uint256 amountOut = msg.value;
+            // If it's not WETH, we must buy the token first...
+            if (_poolConfig.poolType != PoolType.WETH) {
+                ExactInputSingleParams memory swapParams = ExactInputSingleParams({
+                    tokenIn: weth, // The token we are exchanging from (ETH wrapped as WETH)
+                    tokenOut: _poolConfig.poolType == PoolType.CLANKER
+                        ? clankerToken
+                        : _poolConfig.poolType == PoolType.DEGEN
+                        ? degen
+                        : higher, // The token we are exchanging to
+                    fee: _fee, // The pool fee
+                    recipient: address(this), // The recipient address
+                    amountIn: msg.value, // The amount of ETH (WETH) to be swapped
+                    amountOutMinimum: 0, // Minimum amount to receive
+                    sqrtPriceLimitX96: 0 // No price limit
+                });
+
+                amountOut = ISwapRouter(swapRouter).exactInputSingle{ // The call to `exactInputSingle` executes the swap.
+                    value: msg.value
+                }(swapParams);
+
+                token.approve(address(positionManager), amountOut);
+            }
+
+            ExactInputSingleParams memory swapParamsToken = ExactInputSingleParams({
+                tokenIn: _poolConfig.poolType == PoolType.CLANKER
+                    ? clankerToken
+                    : _poolConfig.poolType == PoolType.DEGEN
+                    ? degen
+                    : _poolConfig.poolType == PoolType.HIGHER
+                    ? higher
+                    : weth, // The token we are exchanging from (ETH wrapped as WETH)
                 tokenOut: address(token), // The token we are exchanging to
                 fee: _fee, // The pool fee
                 recipient: _deployer, // The recipient address
-                amountIn: msg.value, // The amount of ETH (WETH) to be swapped
+                amountIn: amountOut, // The amount of ETH (WETH) to be swapped
                 amountOutMinimum: 0, // Minimum amount to receive
                 sqrtPriceLimitX96: 0 // No price limit
             });
 
             // The call to `exactInputSingle` executes the swap.
-            ISwapRouter(swapRouter).exactInputSingle{value: msg.value}(
-                swapParamsTokenWeth
-            );
+            ISwapRouter(swapRouter).exactInputSingle{
+                value: _poolConfig.poolType == PoolType.WETH ? msg.value : 0
+            }(swapParamsToken);
         }
 
         tokensDeployedByUsers[_deployer].push(
