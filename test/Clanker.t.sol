@@ -1194,6 +1194,10 @@ contract ClankerTest is Test {
         assertEq(deployments[0].locker, address(liquidityLocker));
         clanker.claimRewards(token);
 
+        // Try to claim rewards for a token that doesn't exist
+        vm.expectRevert(abi.encodeWithSelector(Clanker.TokenNotFound.selector, address(0)));
+        clanker.claimRewards(address(0));
+
         vm.stopPrank();
 
         proxystudioBalanceAfter = IERC20(weth).balanceOf(proxystudio);

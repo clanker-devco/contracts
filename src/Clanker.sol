@@ -16,6 +16,8 @@ contract Clanker is Ownable {
     error InvalidConfig();
     error NotAdmin(address user);
     error NotAllowedPairedToken(address token);
+    error TokenNotFound(address token);
+
     LpLockerv2 public liquidityLocker;
     string public constant version = "0.0.2";
 
@@ -256,7 +258,7 @@ contract Clanker is Ownable {
     function claimRewards(address token) external {
         DeploymentInfo memory deploymentInfo = deploymentInfoForToken[token];
 
-        if (deploymentInfo.token == address(0)) revert("Token not found");
+        if (deploymentInfo.token == address(0)) revert TokenNotFound(token);
 
         ILocker(deploymentInfo.locker).collectRewards(
             deploymentInfo.positionId
