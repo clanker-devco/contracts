@@ -1170,17 +1170,10 @@ contract ClankerTest is Test {
         this.initialSwapTokens{value: 1 ether}(token, 100);
         vm.stopPrank();
 
-        // Clanker team EOA can't claim fees from the locker
-        vm.startPrank(clankerTeamEOA);
-
         uint proxystudioBalanceBefore = IERC20(weth).balanceOf(proxystudio);
         uint clankerTeamEoABalanceBefore = IERC20(weth).balanceOf(
             clankerTeamEOA
         );
-
-        vm.expectRevert(bytes("Token not found"));
-        clanker.claimRewards(token);
-        vm.stopPrank();
 
         uint proxystudioBalanceAfter = IERC20(weth).balanceOf(proxystudio);
         uint clankerTeamEoABalanceAfter = IERC20(weth).balanceOf(

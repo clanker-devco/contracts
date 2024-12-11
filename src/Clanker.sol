@@ -43,6 +43,7 @@ contract Clanker is Ownable {
     }
 
     mapping(address => DeploymentInfo[]) public tokensDeployedByUsers;
+    mapping(address => DeploymentInfo) public deploymentInfoForToken;
 
     event TokenCreated(
         address tokenAddress,
@@ -219,13 +220,14 @@ contract Clanker is Ownable {
             }(swapParamsToken);
         }
 
-        tokensDeployedByUsers[_deployer].push(
-            DeploymentInfo({
-                token: address(token),
-                positionId: positionId,
-                locker: address(liquidityLocker)
-            })
-        );
+        DeploymentInfo memory deploymentInfo = DeploymentInfo({
+            token: address(token),
+            positionId: positionId,
+            locker: address(liquidityLocker)
+        });
+
+        deploymentInfoForToken[address(token)] = deploymentInfo;
+        tokensDeployedByUsers[_deployer].push(deploymentInfo);
 
         emit TokenCreated(
             address(token),
@@ -251,22 +253,14 @@ contract Clanker is Ownable {
         allowedPairedTokens[token] = allowed;
     }
 
-    // Remove restriction...
     function claimRewards(address token) external {
-        DeploymentInfo[] memory tokens = tokensDeployedByUsers[msg.sender];
-        bool found = false;
-        DeploymentInfo memory tokenInfo;
-        for (uint256 i = 0; i < tokens.length; i++) {
-            if (tokens[i].token == token) {
-                found = true;
-                tokenInfo = tokens[i];
-                break;
-            }
-        }
+        DeploymentInfo memory deploymentInfo = deploymentInfoForToken[token];
 
-        if (!found) revert("Token not found");
+        if (deploymentInfo.token == address(0)) revert("Token not found");
 
-        ILocker(tokenInfo.locker).collectRewards(tokenInfo.positionId);
+        ILocker(deploymentInfo.locker).collectRewards(
+            deploymentInfo.positionId
+        );
     }
 
     function setDeprecated(bool _deprecated) external onlyOwner {
