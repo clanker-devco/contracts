@@ -641,6 +641,246 @@ contract ClankerTest is Test {
         vm.stopPrank();
     }
 
+    function test_deployTokenHigherPoolOnly() public {
+        vm.startPrank(clankerTeamEOA);
+        vm.warp(block.timestamp + 1);
+
+        vm.deal(clankerTeamEOA, 10 ether);
+
+        Clanker.PoolConfig memory poolConfig = Clanker.PoolConfig({
+            tick: -230400,
+            poolType: Clanker.PoolType.HIGHER
+        });
+
+        // Try to deploy with an invalid fee amount leading to an invalid tick
+
+        // Fee of 10 is invalid (this is 0.1%)
+        vm.expectRevert("Invalid tick");
+        clanker.deployToken(
+            "proxystudio",
+            "WKND",
+            1 ether,
+            10,
+            bytes32(0),
+            proxystudio,
+            proxystudio_fid,
+            clankerImage,
+            exampleCastHash,
+            poolConfig
+        );
+
+        // A token address greater than WETH is invalid
+        vm.expectRevert("Invalid salt");
+        clanker.deployToken(
+            "proxystudio",
+            "WKND",
+            1 ether,
+            100,
+            bytes32(
+                0x0000000000000000000000000000000000000000000000000000000000000002
+            ),
+            proxystudio,
+            proxystudio_fid,
+            clankerImage,
+            exampleCastHash,
+            poolConfig
+        );
+
+        // Make a valid salt...
+        (bytes32 salt, address token) = this.generateSalt(
+            proxystudio,
+            proxystudio_fid,
+            "proxystudio",
+            "WKND",
+            clankerImage,
+            exampleCastHash,
+            1 ether
+        );
+
+        // Deploy the token without value
+        vm.startPrank(clankerTeamEOA);
+        clanker.deployToken{value: 0.1 ether}(
+            "proxystudio",
+            "WKND",
+            1 ether,
+            10000,
+            salt,
+            proxystudio,
+            proxystudio_fid,
+            clankerImage,
+            exampleCastHash,
+            poolConfig
+        );
+
+        // All the token's data is correct
+        ClankerToken tokenContract = ClankerToken(token);
+        assertEq(tokenContract.name(), "proxystudio");
+        assertEq(tokenContract.symbol(), "WKND");
+        assertEq(tokenContract.totalSupply(), 1 ether);
+        assertEq(tokenContract.deployer(), proxystudio);
+        assertEq(tokenContract.fid(), proxystudio_fid);
+        assertEq(tokenContract.image(), clankerImage);
+        assertEq(tokenContract.castHash(), exampleCastHash);
+        assertEq(tokenContract.decimals(), 18);
+
+        // Check the tokensDeployedByUsers mapping
+        Clanker.DeploymentInfo[] memory deployments = clanker
+            .getTokensDeployedByUser(proxystudio);
+        assertEq(deployments.length, 1);
+        assertEq(deployments[0].token, token);
+        assertEq(deployments[0].positionId, 1260053);
+        assertEq(deployments[0].locker, address(liquidityLocker));
+
+        // The deployer (proxystudio) can update the image
+        vm.startPrank(proxystudio);
+        tokenContract.updateImage("new image");
+        vm.stopPrank();
+
+        assertEq(tokenContract.image(), "new image");
+
+        // No one else can update the image
+        vm.startPrank(not_proxystudio);
+        vm.expectRevert(ClankerToken.NotDeployer.selector);
+        tokenContract.updateImage("new image 2");
+        vm.stopPrank();
+
+        // Image still the same
+        assertEq(tokenContract.image(), "new image");
+
+        // Buy the token from the clanker pool
+        // vm.startPrank(not_proxystudio);
+        // vm.deal(not_proxystudio, 2 ether);
+        // this.initialSwapTokensClankerPool{value: 1 ether}(token, 100);
+        // vm.stopPrank();
+
+        // // Collect rewards
+        // vm.startPrank(proxystudio);
+        // clanker.claimRewards(token);
+        // vm.stopPrank();
+
+        vm.stopPrank();
+    }
+
+    function test_deployTokenDegenPoolOnly() public {
+        vm.startPrank(clankerTeamEOA);
+        vm.warp(block.timestamp + 1);
+
+        vm.deal(clankerTeamEOA, 10 ether);
+
+        Clanker.PoolConfig memory poolConfig = Clanker.PoolConfig({
+            tick: -230400,
+            poolType: Clanker.PoolType.DEGEN
+        });
+
+        // Try to deploy with an invalid fee amount leading to an invalid tick
+
+        // Fee of 10 is invalid (this is 0.1%)
+        vm.expectRevert("Invalid tick");
+        clanker.deployToken(
+            "proxystudio",
+            "WKND",
+            1 ether,
+            10,
+            bytes32(0),
+            proxystudio,
+            proxystudio_fid,
+            clankerImage,
+            exampleCastHash,
+            poolConfig
+        );
+
+        // A token address greater than WETH is invalid
+        vm.expectRevert("Invalid salt");
+        clanker.deployToken(
+            "proxystudio",
+            "WKND",
+            1 ether,
+            100,
+            bytes32(
+                0x0000000000000000000000000000000000000000000000000000000000000002
+            ),
+            proxystudio,
+            proxystudio_fid,
+            clankerImage,
+            exampleCastHash,
+            poolConfig
+        );
+
+        // Make a valid salt...
+        (bytes32 salt, address token) = this.generateSalt(
+            proxystudio,
+            proxystudio_fid,
+            "proxystudio",
+            "WKND",
+            clankerImage,
+            exampleCastHash,
+            1 ether
+        );
+
+        // Deploy the token without value
+        vm.startPrank(clankerTeamEOA);
+        clanker.deployToken{value: 0.1 ether}(
+            "proxystudio",
+            "WKND",
+            1 ether,
+            10000,
+            salt,
+            proxystudio,
+            proxystudio_fid,
+            clankerImage,
+            exampleCastHash,
+            poolConfig
+        );
+
+        // All the token's data is correct
+        ClankerToken tokenContract = ClankerToken(token);
+        assertEq(tokenContract.name(), "proxystudio");
+        assertEq(tokenContract.symbol(), "WKND");
+        assertEq(tokenContract.totalSupply(), 1 ether);
+        assertEq(tokenContract.deployer(), proxystudio);
+        assertEq(tokenContract.fid(), proxystudio_fid);
+        assertEq(tokenContract.image(), clankerImage);
+        assertEq(tokenContract.castHash(), exampleCastHash);
+        assertEq(tokenContract.decimals(), 18);
+
+        // Check the tokensDeployedByUsers mapping
+        Clanker.DeploymentInfo[] memory deployments = clanker
+            .getTokensDeployedByUser(proxystudio);
+        assertEq(deployments.length, 1);
+        assertEq(deployments[0].token, token);
+        assertEq(deployments[0].positionId, 1260053);
+        assertEq(deployments[0].locker, address(liquidityLocker));
+
+        // The deployer (proxystudio) can update the image
+        vm.startPrank(proxystudio);
+        tokenContract.updateImage("new image");
+        vm.stopPrank();
+
+        assertEq(tokenContract.image(), "new image");
+
+        // No one else can update the image
+        vm.startPrank(not_proxystudio);
+        vm.expectRevert(ClankerToken.NotDeployer.selector);
+        tokenContract.updateImage("new image 2");
+        vm.stopPrank();
+
+        // Image still the same
+        assertEq(tokenContract.image(), "new image");
+
+        // Buy the token from the clanker pool
+        // vm.startPrank(not_proxystudio);
+        // vm.deal(not_proxystudio, 2 ether);
+        // this.initialSwapTokensClankerPool{value: 1 ether}(token, 100);
+        // vm.stopPrank();
+
+        // // Collect rewards
+        // vm.startPrank(proxystudio);
+        // clanker.claimRewards(token);
+        // vm.stopPrank();
+
+        vm.stopPrank();
+    }
+
     function test_specificNewSaltBehavior() public {
         // Create a token with a salt for deployer, should be the same token as expected...
         vm.selectFork(baseFork);
