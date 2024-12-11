@@ -633,9 +633,9 @@ contract ClankerTest is Test {
         // this.initialSwapTokensClankerPool{value: 1 ether}(token, 100);
         // vm.stopPrank();
 
-        // // Collect fees
+        // // Collect rewards
         // vm.startPrank(proxystudio);
-        // clanker.claimFees(token);
+        // clanker.claimRewards(token);
         // vm.stopPrank();
 
         vm.stopPrank();
@@ -693,7 +693,7 @@ contract ClankerTest is Test {
         vm.stopPrank();
     }
 
-    function test_whoCanClaimFeesOnCurrentBlondeLocker() public {
+    function test_whoCanClaimRewardsOnCurrentBlondeLocker() public {
         vm.selectFork(baseFork);
         vm.warp(block.timestamp + 1);
         vm.roll(23054702);
@@ -718,7 +718,7 @@ contract ClankerTest is Test {
         vm.stopPrank();
     }
 
-    function test_whoCanClaimFeesOnNewTokenWithNewContract() public {
+    function test_whoCanClaimRewardsOnNewTokenWithNewContract() public {
         vm.selectFork(baseFork);
         vm.warp(block.timestamp + 1);
         vm.roll(23054702);
@@ -802,13 +802,13 @@ contract ClankerTest is Test {
 
         // proxystudio can claim fees
         vm.startPrank(proxystudio);
-        LpLockerv2(address(liquidityLocker)).collectFees(1260053);
+        LpLockerv2(address(liquidityLocker)).collectRewards(1260053);
 
         // Can't collect fees for a token that doesn't exist
         vm.expectRevert(
             abi.encodeWithSelector(LpLockerv2.InvalidTokenId.selector, 1)
         );
-        LpLockerv2(address(liquidityLocker)).collectFees(1);
+        LpLockerv2(address(liquidityLocker)).collectRewards(1);
 
         vm.stopPrank();
 
@@ -821,7 +821,7 @@ contract ClankerTest is Test {
 
         // Test with an override fee recipient
         vm.startPrank(clankerTeamEOA);
-        LpLockerv2(address(liquidityLocker)).setOverrideTeamFeesForToken(
+        LpLockerv2(address(liquidityLocker)).setOverrideTeamRewardsForToken(
             1260053,
             not_proxystudio,
             50
@@ -841,7 +841,7 @@ contract ClankerTest is Test {
 
         // Collect fees
         vm.startPrank(proxystudio);
-        LpLockerv2(address(liquidityLocker)).collectFees(1260053);
+        LpLockerv2(address(liquidityLocker)).collectRewards(1260053);
         vm.stopPrank();
 
         // Check the balances
@@ -852,7 +852,7 @@ contract ClankerTest is Test {
         );
     }
 
-    function test_claimFees() public {
+    function test_claimRewards() public {
         vm.selectFork(baseFork);
         vm.warp(block.timestamp + 1);
         vm.roll(23054702);
@@ -923,7 +923,7 @@ contract ClankerTest is Test {
         );
 
         vm.expectRevert(bytes("Token not found"));
-        clanker.claimFees(token);
+        clanker.claimRewards(token);
         vm.stopPrank();
 
         uint proxystudioBalanceAfter = IERC20(weth).balanceOf(proxystudio);
@@ -943,7 +943,7 @@ contract ClankerTest is Test {
         assertEq(deployments[0].token, token);
         assertEq(deployments[0].positionId, 1260053);
         assertEq(deployments[0].locker, address(liquidityLocker));
-        clanker.claimFees(token);
+        clanker.claimRewards(token);
 
         vm.stopPrank();
 

@@ -16,7 +16,7 @@ contract LpLockerv2 is Ownable, IERC721Receiver {
     error NotAllowed(address user);
     error InvalidTokenId(uint256 tokenId);
 
-    event ClaimedFees(
+    event ClaimedRewards(
         address indexed claimer,
         address indexed token0,
         address indexed token1,
@@ -30,23 +30,23 @@ contract LpLockerv2 is Ownable, IERC721Receiver {
     address private immutable e721Token;
     address public positionManager = 0x03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1;
     string public constant version = "0.0.2";
-    uint256 public _clankerTeamFee;
+    uint256 public _clankerTeamReward;
     address public _clankerTeamRecipient;
     address public _factory;
-    struct UserFeeRecipient {
+    struct UserRewardRecipient {
         address recipient;
         uint256 lpTokenId;
     }
 
-    struct TeamFeeRecipient {
+    struct TeamRewardRecipient {
         address recipient;
-        uint256 fee;
+        uint256 reward;
         uint256 lpTokenId;
     }
 
-    mapping(uint256 => UserFeeRecipient) public _userFeeRecipientForToken;
-    mapping(uint256 => TeamFeeRecipient)
-        public _teamOverrideFeeRecipientForToken;
+    mapping(uint256 => UserRewardRecipient) public _userRewardRecipientForToken;
+    mapping(uint256 => TeamRewardRecipient)
+        public _teamOverrideRewardRecipientForToken;
 
     mapping(address => uint256[]) public _userTokenIds;
 
@@ -54,12 +54,12 @@ contract LpLockerv2 is Ownable, IERC721Receiver {
         address tokenFactory, // Address of the clanker factory
         address token, // Address of the ERC721 Uniswap V3 LP NFT
         address clankerTeamRecipient, // clanker team address to receive portion of the fees
-        uint256 clankerTeamFee // clanker team fee percentage
+        uint256 clankerTeamReward // clanker team reward percentage
     ) Ownable(clankerTeamRecipient) {
         SafeERC721 = IERC721(token);
         e721Token = token;
         _factory = tokenFactory;
-        _clankerTeamFee = clankerTeamFee;
+        _clankerTeamReward = clankerTeamReward;
         _clankerTeamRecipient = clankerTeamRecipient;
     }
 
@@ -70,14 +70,14 @@ contract LpLockerv2 is Ownable, IERC721Receiver {
         _;
     }
 
-    function setOverrideTeamFeesForToken(
+    function setOverrideTeamRewardsForToken(
         uint256 tokenId,
         address newTeamRecipient,
-        uint256 newTeamFee
+        uint256 newTeamReward
     ) public onlyOwner {
-        _teamOverrideFeeRecipientForToken[tokenId] = TeamFeeRecipient({
+        _teamOverrideRewardRecipientForToken[tokenId] = TeamRewardRecipient({
             recipient: newTeamRecipient,
-            fee: newTeamFee,
+            reward: newTeamReward,
             lpTokenId: tokenId
         });
     }
@@ -86,9 +86,9 @@ contract LpLockerv2 is Ownable, IERC721Receiver {
         _factory = newFactory;
     }
 
-    // Update the clanker team fee
-    function updateClankerTeamFee(uint256 newFee) public onlyOwner {
-        _clankerTeamFee = newFee;
+    // Update the clanker team reward
+    function updateClankerTeamReward(uint256 newReward) public onlyOwner {
+        _clankerTeamReward = newReward;
     }
 
     // Update the clanker team recipient
@@ -107,14 +107,13 @@ contract LpLockerv2 is Ownable, IERC721Receiver {
         IToken.transfer(recipient, IToken.balanceOf(address(this)));
     }
 
-    //Use collect fees to collect the fees
-    function collectFees(uint256 _tokenId) public {
-        // Get the _userFeeRecipients for the tokenId
-        UserFeeRecipient memory userFeeRecipient = _userFeeRecipientForToken[
-            _tokenId
-        ];
+    // Use collect rewards to collect the rewards
+    function collectRewards(uint256 _tokenId) public {
+        // Get the _userRewardRecipients for the tokenId
+        UserRewardRecipient
+            memory userRewardRecipient = _userRewardRecipientForToken[_tokenId];
 
-        address _recipient = userFeeRecipient.recipient;
+        address _recipient = userRewardRecipient.recipient;
 
         if (_recipient == address(0)) {
             revert InvalidTokenId(_tokenId);
@@ -148,40 +147,40 @@ contract LpLockerv2 is Ownable, IERC721Receiver {
 
         ) = nonfungiblePositionManager.positions(_tokenId);
 
-        IERC20 feeToken0 = IERC20(token0);
-        IERC20 feeToken1 = IERC20(token1);
+        IERC20 rewardToken0 = IERC20(token0);
+        IERC20 rewardToken1 = IERC20(token1);
 
         address teamRecipient = _clankerTeamRecipient;
-        uint256 teamFee = _clankerTeamFee;
+        uint256 teamReward = _clankerTeamReward;
 
-        TeamFeeRecipient
-            memory overrideFeeRecipient = _teamOverrideFeeRecipientForToken[
+        TeamRewardRecipient
+            memory overrideRewardRecipient = _teamOverrideRewardRecipientForToken[
                 _tokenId
             ];
 
-        if (overrideFeeRecipient.recipient != address(0)) {
-            teamRecipient = overrideFeeRecipient.recipient;
-            teamFee = overrideFeeRecipient.fee;
+        if (overrideRewardRecipient.recipient != address(0)) {
+            teamRecipient = overrideRewardRecipient.recipient;
+            teamReward = overrideRewardRecipient.reward;
         }
 
-        uint256 protocolFee0 = (amount0 * teamFee) / 100;
-        uint256 protocolFee1 = (amount1 * teamFee) / 100;
+        uint256 protocolReward0 = (amount0 * teamReward) / 100;
+        uint256 protocolReward1 = (amount1 * teamReward) / 100;
 
-        uint256 recipientFee0 = amount0 - protocolFee0;
-        uint256 recipientFee1 = amount1 - protocolFee1;
+        uint256 recipientReward0 = amount0 - protocolReward0;
+        uint256 recipientReward1 = amount1 - protocolReward1;
 
-        feeToken0.transfer(_recipient, recipientFee0);
-        feeToken1.transfer(_recipient, recipientFee1);
+        rewardToken0.transfer(_recipient, recipientReward0);
+        rewardToken1.transfer(_recipient, recipientReward1);
 
-        feeToken0.transfer(teamRecipient, protocolFee0);
-        feeToken1.transfer(teamRecipient, protocolFee1);
+        rewardToken0.transfer(teamRecipient, protocolReward0);
+        rewardToken1.transfer(teamRecipient, protocolReward1);
 
-        emit ClaimedFees(
+        emit ClaimedRewards(
             _recipient,
             token0,
             token1,
-            recipientFee0,
-            recipientFee1,
+            recipientReward0,
+            recipientReward1,
             amount0,
             amount1
         );
@@ -193,26 +192,28 @@ contract LpLockerv2 is Ownable, IERC721Receiver {
         return _userTokenIds[user];
     }
 
-    function addUserFeeRecipient(
-        UserFeeRecipient memory recipient
+    function addUserRewardRecipient(
+        UserRewardRecipient memory recipient
     ) public onlyOwnerOrFactory {
-        _userFeeRecipientForToken[recipient.lpTokenId] = recipient;
+        _userRewardRecipientForToken[recipient.lpTokenId] = recipient;
         _userTokenIds[recipient.recipient].push(recipient.lpTokenId);
     }
 
-    function replaceUserFeeRecipient(UserFeeRecipient memory recipient) public {
+    function replaceUserRewardRecipient(
+        UserRewardRecipient memory recipient
+    ) public {
         // Get the old recipient
-        UserFeeRecipient memory oldRecipient = _userFeeRecipientForToken[
+        UserRewardRecipient memory oldRecipient = _userRewardRecipientForToken[
             recipient.lpTokenId
         ];
 
-        // Only owner or recipient can replace the fee recipient
+        // Only owner or recipient can replace the reward recipient
         if (msg.sender != owner() && msg.sender != oldRecipient.recipient) {
             revert NotAllowed(msg.sender);
         }
 
         // Remove the old recipient
-        delete _userFeeRecipientForToken[recipient.lpTokenId];
+        delete _userRewardRecipientForToken[recipient.lpTokenId];
 
         // Remove the old tokenId from _userTokenIds
         uint256[] memory tokenIds = _userTokenIds[recipient.recipient];
@@ -223,7 +224,7 @@ contract LpLockerv2 is Ownable, IERC721Receiver {
         }
 
         // Add the new recipient
-        _userFeeRecipientForToken[recipient.lpTokenId] = recipient;
+        _userRewardRecipientForToken[recipient.lpTokenId] = recipient;
 
         // Add the new tokenId to _userTokenIds
         _userTokenIds[recipient.recipient].push(recipient.lpTokenId);

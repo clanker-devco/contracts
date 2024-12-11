@@ -33,7 +33,7 @@ contract LpLockerv2Test is Test {
     address liquidityLocker;
 
     address clankerTeamOriginalEOA = 0xC204af95b0307162118f7Bc36a91c9717490AB69;
-    uint256 clankerTeamFee = 60;
+    uint256 clankerTeamReward = 60;
 
     function setUp() public {
         baseFork = vm.createSelectFork(alchemyBase, 23314605);
@@ -52,7 +52,7 @@ contract LpLockerv2Test is Test {
             address(clanker),
             positionManager,
             clankerTeamOriginalEOA,
-            clankerTeamFee
+            clankerTeamReward
         );
 
         vm.stopPrank();
@@ -62,7 +62,7 @@ contract LpLockerv2Test is Test {
         assertEq(lpLockerv2.owner(), clankerTeamOriginalEOA);
         assertEq(lpLockerv2.positionManager(), positionManager);
         assertEq(lpLockerv2._clankerTeamRecipient(), clankerTeamOriginalEOA);
-        assertEq(lpLockerv2._clankerTeamFee(), clankerTeamFee);
+        assertEq(lpLockerv2._clankerTeamReward(), clankerTeamReward);
     }
 
     function test_ownerOnlyFunctions() public {
@@ -73,7 +73,7 @@ contract LpLockerv2Test is Test {
                 proxystudio
             )
         );
-        lpLockerv2.updateClankerTeamFee(50);
+        lpLockerv2.updateClankerTeamReward(50);
 
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -89,33 +89,33 @@ contract LpLockerv2Test is Test {
                 proxystudio
             )
         );
-        lpLockerv2.setOverrideTeamFeesForToken(1, proxystudio, 50);
+        lpLockerv2.setOverrideTeamRewardsForToken(1, proxystudio, 50);
 
         vm.stopPrank();
 
         // Recipient and fee are not updated
-        assertEq(lpLockerv2._clankerTeamFee(), clankerTeamFee);
+        assertEq(lpLockerv2._clankerTeamReward(), clankerTeamReward);
         assertEq(lpLockerv2._clankerTeamRecipient(), clankerTeamOriginalEOA);
 
         // Now update them
         vm.startPrank(clankerTeamOriginalEOA);
-        lpLockerv2.updateClankerTeamFee(50);
+        lpLockerv2.updateClankerTeamReward(50);
         lpLockerv2.updateClankerTeamRecipient(proxystudio);
         vm.stopPrank();
 
         // Recipient and fee are updated
-        assertEq(lpLockerv2._clankerTeamFee(), 50);
+        assertEq(lpLockerv2._clankerTeamReward(), 50);
         assertEq(lpLockerv2._clankerTeamRecipient(), proxystudio);
 
         vm.startPrank(clankerTeamOriginalEOA);
-        lpLockerv2.setOverrideTeamFeesForToken(1, proxystudio, 50);
+        lpLockerv2.setOverrideTeamRewardsForToken(1, proxystudio, 50);
         vm.stopPrank();
 
-        (address recipient, uint256 fee, uint256 lpTokenId) = lpLockerv2
-            ._teamOverrideFeeRecipientForToken(1);
+        (address recipient, uint256 reward, uint256 lpTokenId) = lpLockerv2
+            ._teamOverrideRewardRecipientForToken(1);
 
         assertEq(recipient, proxystudio);
-        assertEq(fee, 50);
+        assertEq(reward, 50);
         assertEq(lpTokenId, 1);
     }
 

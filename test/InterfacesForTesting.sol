@@ -8,5 +8,5 @@ interface OldLpLocker {
 }
 
 interface LPLocker {
-    function collectFees(uint256 wethPositionId) external;
+    function collectRewards(uint256 wethPositionId) external;
 }

@@ -130,8 +130,8 @@ contract Clanker is Ownable {
             positionId
         );
 
-        liquidityLocker.addUserFeeRecipient(
-            LpLockerv2.UserFeeRecipient({
+        liquidityLocker.addUserRewardRecipient(
+            LpLockerv2.UserRewardRecipient({
                 recipient: deployer,
                 lpTokenId: positionId
             })
@@ -298,7 +298,7 @@ contract Clanker is Ownable {
         admins[admin] = isAdmin;
     }
 
-    function claimFees(address token) external {
+    function claimRewards(address token) external {
         DeploymentInfo[] memory tokens = tokensDeployedByUsers[msg.sender];
         bool found = false;
         DeploymentInfo memory tokenInfo;
@@ -312,7 +312,7 @@ contract Clanker is Ownable {
 
         if (!found) revert("Token not found");
 
-        ILocker(tokenInfo.locker).collectFees(tokenInfo.positionId);
+        ILocker(tokenInfo.locker).collectRewards(tokenInfo.positionId);
     }
 
     function setDeprecated(bool _deprecated) external onlyOwner {

@@ -78,7 +78,7 @@ interface ILocker {
         uint256 clankerPositionId
     ) external;
 
-    function collectFees(uint256 _tokenId) external;
+    function collectRewards(uint256 _tokenId) external;
 }
 
 struct ExactInputSingleParams {
