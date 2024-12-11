@@ -35,6 +35,8 @@ contract ClankerTest is Test {
 
     address usdc = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
     address clankerToken = 0x1bc0c42215582d5A085795f4baDbaC3ff36d1Bcb;
+    address higherToken = 0x0578d8A44db98B23BF096A382e016e29a5Ce0ffe;
+    address degenToken = 0x4ed4E862860beD51a9570b96d89aF5E1B0Efefed;
 
     string clankerImage =
         "https://assets.coingecko.com/coins/images/51440/standard/CLANKER.png?1731232869";
@@ -210,6 +212,13 @@ contract ClankerTest is Test {
         vm.stopPrank();
         vm.startPrank(clankerTeamEOA);
         clanker.updateLiquidityLocker(address(liquidityLocker));
+
+        // Toggle all the pair tokens
+        clanker.toggleAllowedPairedToken(weth, true);
+        clanker.toggleAllowedPairedToken(clankerToken, true);
+        clanker.toggleAllowedPairedToken(degenToken, true);
+        clanker.toggleAllowedPairedToken(higherToken, true);
+
         // Approve the clanker deployer to spend the clanker
         IERC20(clankerToken).approve(address(clanker), type(uint256).max);
 
@@ -315,7 +324,8 @@ contract ClankerTest is Test {
 
         Clanker.PoolConfig memory poolConfig = Clanker.PoolConfig({
             tick: 1,
-            poolType: Clanker.PoolType.WETH
+            pairedToken: weth,
+            devBuyFee: 10000
         });
 
         // Try to deploy with an invalid fee amount leading to an invalid tick
@@ -529,7 +539,8 @@ contract ClankerTest is Test {
 
         Clanker.PoolConfig memory poolConfig = Clanker.PoolConfig({
             tick: -230400,
-            poolType: Clanker.PoolType.CLANKER
+            pairedToken: clankerToken,
+            devBuyFee: 10000
         });
 
         // Try to deploy with an invalid fee amount leading to an invalid tick
@@ -649,7 +660,8 @@ contract ClankerTest is Test {
 
         Clanker.PoolConfig memory poolConfig = Clanker.PoolConfig({
             tick: -230400,
-            poolType: Clanker.PoolType.HIGHER
+            pairedToken: higherToken,
+            devBuyFee: 10000
         });
 
         // Try to deploy with an invalid fee amount leading to an invalid tick
@@ -769,7 +781,8 @@ contract ClankerTest is Test {
 
         Clanker.PoolConfig memory poolConfig = Clanker.PoolConfig({
             tick: -230400,
-            poolType: Clanker.PoolType.DEGEN
+            pairedToken: degenToken,
+            devBuyFee: 3000
         });
 
         // Try to deploy with an invalid fee amount leading to an invalid tick
@@ -888,7 +901,8 @@ contract ClankerTest is Test {
 
         Clanker.PoolConfig memory poolConfig = Clanker.PoolConfig({
             tick: 1,
-            poolType: Clanker.PoolType.WETH
+            pairedToken: weth,
+            devBuyFee: 10000
         });
 
         (bytes32 salt, address token) = this.generateSalt(
@@ -965,7 +979,8 @@ contract ClankerTest is Test {
 
         Clanker.PoolConfig memory poolConfig = Clanker.PoolConfig({
             tick: 1,
-            poolType: Clanker.PoolType.WETH
+            pairedToken: weth,
+            devBuyFee: 10000
         });
 
         // Make proxystudio persistent
@@ -1099,7 +1114,8 @@ contract ClankerTest is Test {
 
         Clanker.PoolConfig memory poolConfig = Clanker.PoolConfig({
             tick: 1,
-            poolType: Clanker.PoolType.WETH
+            pairedToken: weth,
+            devBuyFee: 10000
         });
 
         // Make proxystudio persistent

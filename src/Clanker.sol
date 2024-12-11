@@ -15,14 +15,11 @@ contract Clanker is Ownable {
     error Deprecated();
     error InvalidConfig();
     error NotAdmin(address user);
-
+    error NotAllowedPairedToken(address token);
     LpLockerv2 public liquidityLocker;
     string public constant version = "0.0.2";
 
     address public weth = 0x4200000000000000000000000000000000000006;
-    address public degen = 0x4ed4E862860beD51a9570b96d89aF5E1B0Efefed;
-    address public clankerToken = 0x1bc0c42215582d5A085795f4baDbaC3ff36d1Bcb;
-    address public higher = 0x0578d8A44db98B23BF096A382e016e29a5Ce0ffe;
 
     IUniswapV3Factory public uniswapV3Factory;
     INonfungiblePositionManager public positionManager;
@@ -31,17 +28,12 @@ contract Clanker is Ownable {
     bool public deprecated;
 
     mapping(address => bool) public admins;
-
-    enum PoolType {
-        WETH,
-        CLANKER,
-        DEGEN,
-        HIGHER
-    }
+    mapping(address => bool) public allowedPairedTokens;
 
     struct PoolConfig {
         int24 tick;
-        PoolType poolType;
+        address pairedToken;
+        uint24 devBuyFee;
     }
 
     struct DeploymentInfo {
@@ -156,6 +148,8 @@ contract Clanker is Ownable {
         returns (ClankerToken token, uint256 positionId)
     {
         if (deprecated) revert Deprecated();
+        if (!allowedPairedTokens[_poolConfig.pairedToken])
+            revert NotAllowedPairedToken(_poolConfig.pairedToken);
 
         int24 tickSpacing = uniswapV3Factory.feeAmountTickSpacing(_fee);
         require(
@@ -175,60 +169,24 @@ contract Clanker is Ownable {
 
         token.approve(address(positionManager), _supply);
 
-        if (_poolConfig.poolType == PoolType.WETH) {
-            positionId = configurePool(
-                address(token),
-                weth,
-                _poolConfig.tick,
-                tickSpacing,
-                _fee,
-                _supply,
-                _deployer
-            );
-        } else if (_poolConfig.poolType == PoolType.CLANKER) {
-            positionId = configurePool(
-                address(token),
-                clankerToken,
-                _poolConfig.tick,
-                tickSpacing,
-                _fee,
-                _supply,
-                _deployer
-            );
-        } else if (_poolConfig.poolType == PoolType.DEGEN) {
-            positionId = configurePool(
-                address(token),
-                degen,
-                _poolConfig.tick,
-                tickSpacing,
-                _fee,
-                _supply,
-                _deployer
-            );
-        } else if (_poolConfig.poolType == PoolType.HIGHER) {
-            positionId = configurePool(
-                address(token),
-                higher,
-                _poolConfig.tick,
-                tickSpacing,
-                _fee,
-                _supply,
-                _deployer
-            );
-        }
+        positionId = configurePool(
+            address(token),
+            _poolConfig.pairedToken,
+            _poolConfig.tick,
+            tickSpacing,
+            _fee,
+            _supply,
+            _deployer
+        );
 
         if (msg.value > 0) {
             uint256 amountOut = msg.value;
             // If it's not WETH, we must buy the token first...
-            if (_poolConfig.poolType != PoolType.WETH) {
+            if (_poolConfig.pairedToken != weth) {
                 ExactInputSingleParams memory swapParams = ExactInputSingleParams({
                     tokenIn: weth, // The token we are exchanging from (ETH wrapped as WETH)
-                    tokenOut: _poolConfig.poolType == PoolType.CLANKER
-                        ? clankerToken
-                        : _poolConfig.poolType == PoolType.DEGEN
-                        ? degen
-                        : higher, // The token we are exchanging to
-                    fee: _fee, // The pool fee
+                    tokenOut: _poolConfig.pairedToken, // The token we are exchanging to
+                    fee: _poolConfig.devBuyFee, // The pool fee
                     recipient: address(this), // The recipient address
                     amountIn: msg.value, // The amount of ETH (WETH) to be swapped
                     amountOutMinimum: 0, // Minimum amount to receive
@@ -239,26 +197,14 @@ contract Clanker is Ownable {
                     value: msg.value
                 }(swapParams);
 
-                IERC20(
-                    _poolConfig.poolType == PoolType.CLANKER
-                        ? clankerToken
-                        : _poolConfig.poolType == PoolType.DEGEN
-                        ? degen
-                        : higher
-                ).approve(
-                        address(swapRouter),
-                        0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-                    );
+                IERC20(_poolConfig.pairedToken).approve(
+                    address(swapRouter),
+                    0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+                );
             }
 
             ExactInputSingleParams memory swapParamsToken = ExactInputSingleParams({
-                tokenIn: _poolConfig.poolType == PoolType.CLANKER
-                    ? clankerToken
-                    : _poolConfig.poolType == PoolType.DEGEN
-                    ? degen
-                    : _poolConfig.poolType == PoolType.HIGHER
-                    ? higher
-                    : weth, // The token we are exchanging from (ETH wrapped as WETH)
+                tokenIn: _poolConfig.pairedToken, // The token we are exchanging from (ETH wrapped as WETH)
                 tokenOut: address(token), // The token we are exchanging to
                 fee: _fee, // The pool fee
                 recipient: _deployer, // The recipient address
@@ -269,7 +215,7 @@ contract Clanker is Ownable {
 
             // The call to `exactInputSingle` executes the swap.
             ISwapRouter(swapRouter).exactInputSingle{
-                value: _poolConfig.poolType == PoolType.WETH ? msg.value : 0
+                value: _poolConfig.pairedToken == weth ? msg.value : 0
             }(swapParamsToken);
         }
 
@@ -298,6 +244,14 @@ contract Clanker is Ownable {
         admins[admin] = isAdmin;
     }
 
+    function toggleAllowedPairedToken(
+        address token,
+        bool allowed
+    ) external onlyOwner {
+        allowedPairedTokens[token] = allowed;
+    }
+
+    // Remove restriction...
     function claimRewards(address token) external {
         DeploymentInfo[] memory tokens = tokensDeployedByUsers[msg.sender];
         bool found = false;
