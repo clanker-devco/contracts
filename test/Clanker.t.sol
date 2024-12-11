@@ -1174,6 +1174,9 @@ contract ClankerTest is Test {
         uint clankerTeamEoABalanceBefore = IERC20(weth).balanceOf(
             clankerTeamEOA
         );
+        uint notProxystudioBalanceBefore = IERC20(weth).balanceOf(
+            not_proxystudio
+        );
 
         uint proxystudioBalanceAfter = IERC20(weth).balanceOf(proxystudio);
         uint clankerTeamEoABalanceAfter = IERC20(weth).balanceOf(
@@ -1195,7 +1198,9 @@ contract ClankerTest is Test {
         clanker.claimRewards(token);
 
         // Try to claim rewards for a token that doesn't exist
-        vm.expectRevert(abi.encodeWithSelector(Clanker.TokenNotFound.selector, address(0)));
+        vm.expectRevert(
+            abi.encodeWithSelector(Clanker.TokenNotFound.selector, address(0))
+        );
         clanker.claimRewards(address(0));
 
         vm.stopPrank();
@@ -1205,5 +1210,39 @@ contract ClankerTest is Test {
 
         assertGt(proxystudioBalanceAfter, proxystudioBalanceBefore);
         assertGt(clankerTeamEoABalanceAfter, clankerTeamEoABalanceBefore);
+
+        // Update the reward recipient
+        vm.startPrank(clankerTeamEOA);
+        LpLockerv2(address(liquidityLocker)).replaceUserRewardRecipient(
+            LpLockerv2.UserRewardRecipient({
+                lpTokenId: 1260053,
+                recipient: not_proxystudio
+            })
+        );
+        vm.stopPrank();
+
+        // Check the reward recipient is updated
+        (address recipient, uint256 lpTokenId) = LpLockerv2(
+            address(liquidityLocker)
+        )._userRewardRecipientForToken(1260053);
+        assertEq(recipient, not_proxystudio);
+
+        // Trade some more
+        vm.deal(not_proxystudio, 1 ether);
+        vm.startPrank(not_proxystudio);
+        this.initialSwapTokens{value: 1 ether}(token, 100);
+        vm.stopPrank();
+
+        // Claim rewards
+        vm.startPrank(proxystudio);
+        clanker.claimRewards(token);
+        vm.stopPrank();
+
+        // Check the balances
+        assertEq(IERC20(weth).balanceOf(proxystudio), proxystudioBalanceAfter);
+        assertGt(
+            IERC20(weth).balanceOf(not_proxystudio),
+            notProxystudioBalanceBefore
+        );
     }
 }

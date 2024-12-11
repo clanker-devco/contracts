@@ -102,6 +102,16 @@ contract LpLockerv2Test is Test {
         // Still the same
         assertEq(lpLockerv2._factory(), address(clanker));
 
+        vm.expectRevert(
+            abi.encodeWithSelector(LpLockerv2.NotAllowed.selector, proxystudio)
+        );
+        lpLockerv2.replaceUserRewardRecipient(
+            LpLockerv2.UserRewardRecipient({
+                lpTokenId: 1,
+                recipient: proxystudio
+            })
+        );
+
         vm.stopPrank();
 
         // Recipient and fee are not updated
@@ -125,6 +135,13 @@ contract LpLockerv2Test is Test {
 
         // Should have updated
         assertEq(lpLockerv2._factory(), address(0));
+
+        lpLockerv2.replaceUserRewardRecipient(
+            LpLockerv2.UserRewardRecipient({
+                lpTokenId: 1,
+                recipient: proxystudio
+            })
+        );
 
         vm.stopPrank();
 
