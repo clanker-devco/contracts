@@ -91,6 +91,17 @@ contract LpLockerv2Test is Test {
         );
         lpLockerv2.setOverrideTeamRewardsForToken(1, proxystudio, 50);
 
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Ownable.OwnableUnauthorizedAccount.selector,
+                proxystudio
+            )
+        );
+        lpLockerv2.updateClankerFactory(address(0));
+
+        // Still the same
+        assertEq(lpLockerv2._factory(), address(clanker));
+
         vm.stopPrank();
 
         // Recipient and fee are not updated
@@ -109,6 +120,12 @@ contract LpLockerv2Test is Test {
 
         vm.startPrank(clankerTeamOriginalEOA);
         lpLockerv2.setOverrideTeamRewardsForToken(1, proxystudio, 50);
+
+        lpLockerv2.updateClankerFactory(address(0));
+
+        // Should have updated
+        assertEq(lpLockerv2._factory(), address(0));
+
         vm.stopPrank();
 
         (address recipient, uint256 reward, uint256 lpTokenId) = lpLockerv2
