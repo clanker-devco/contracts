@@ -2,12 +2,17 @@
 pragma solidity ^0.8.25;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC165} from "@openzeppelin/contracts/interfaces/IERC165.sol";
 import {ERC20Votes} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Votes.sol";
 import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import {Nonces} from "@openzeppelin/contracts/utils/Nonces.sol";
+import { IERC7802 } from "@contracts-bedrock/src/L2/interfaces/IERC7802.sol";
+import { Predeploys } from "@contracts-bedrock/src/libraries/Predeploys.sol";
+import { Unauthorized } from "@contracts-bedrock/src/libraries/errors/CommonErrors.sol";
 
-contract ClankerToken is ERC20, ERC20Permit, ERC20Votes, ERC20Burnable {
+contract ClankerToken is ERC20, ERC20Permit, ERC20Votes, ERC20Burnable, IERC7802 {
     error NotDeployer();
 
     string private _name;
@@ -70,5 +75,32 @@ contract ClankerToken is ERC20, ERC20Permit, ERC20Votes, ERC20Burnable {
 
     function castHash() public view returns (string memory) {
         return _castHash;
+    }
+
+    function crosschainMint(address _to, uint256 _amount) external {
+        // Only the `SuperchainTokenBridge` has permissions to mint tokens during crosschain transfers.
+        if (msg.sender != Predeploys.SUPERCHAIN_TOKEN_BRIDGE) revert Unauthorized();
+        
+        // Mint tokens to the `_to` account's balance.
+        _mint(_to, _amount);
+
+        // Emit the CrosschainMint event included on IERC7802 for tracking token mints associated with cross chain transfers.
+        emit CrosschainMint(_to, _amount);
+    }
+
+    function crosschainBurn(address _from, uint256 _amount) external {
+        // Only the `SuperchainTokenBridge` has permissions to burn tokens during crosschain transfers.
+        if (msg.sender != Predeploys.SUPERCHAIN_TOKEN_BRIDGE) revert Unauthorized();
+
+        // Burn the tokens from the `_from` account's balance.
+        _burn(_from, _amount);
+
+        // Emit the CrosschainBurn event included on IERC7802 for tracking token burns associated with cross chain transfers.
+        emit CrosschainBurn(_from, _amount);
+    }
+
+    function supportsInterface(bytes4 _interfaceId) public pure returns (bool) {
+        return _interfaceId == type(IERC7802).interfaceId || _interfaceId == type(IERC20).interfaceId
+            || _interfaceId == type(IERC165).interfaceId;
     }
 }

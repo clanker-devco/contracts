@@ -2,3 +2,4 @@
 @uniswap/v3-core/=lib/v3-core/
 @solady/=lib/optimism/packages/contracts-bedrock/lib/solady/src/
 @solady-v0.0.245/=lib/optimism/packages/contracts-bedrock/lib/solady/src/
+@contracts-bedrock/=lib/optimism/packages/contracts-bedrock/

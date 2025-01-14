@@ -4,6 +4,7 @@ pragma solidity ^0.8.13;
 import {Test, console} from "forge-std/Test.sol";
 import {Clanker} from "../src/Clanker.sol";
 import {ClankerToken} from "../src/ClankerToken.sol";
+import {ClankerPreSale, IClankerFactory} from "../src/ClankerPreSale.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {LPLocker} from "./InterfacesForTesting.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -26,6 +27,7 @@ contract ClankerTest is Test {
 
     Clanker public clanker;
     LpLockerv2 public liquidityLocker;
+    ClankerPreSale public clankerPreSale;
 
     address proxystudio = 0x053707B201385AE3421D450A1FF272952D2D6971;
     uint256 proxystudio_fid = 270504;
@@ -106,7 +108,8 @@ contract ClankerTest is Test {
         string calldata symbol,
         string calldata image,
         string calldata castHash,
-        uint256 supply
+        uint256 supply,
+        address pairedToken
     ) external view returns (bytes32 salt, address token) {
         for (uint256 i; ; i++) {
             salt = bytes32(i);
@@ -120,9 +123,7 @@ contract ClankerTest is Test {
                 supply,
                 salt
             );
-            if (
-                token < weth && token.code.length == 0 && token < clankerToken
-            ) {
+            if (token < weth && token.code.length == 0 && token < pairedToken) {
                 break;
             }
         }
@@ -209,15 +210,14 @@ contract ClankerTest is Test {
             50
         );
 
+        clankerPreSale = new ClankerPreSale(address(clanker), clankerTeamEOA);
+
         vm.stopPrank();
         vm.startPrank(clankerTeamEOA);
         clanker.updateLiquidityLocker(address(liquidityLocker));
 
-        // Toggle all the pair tokens
-        clanker.toggleAllowedPairedToken(weth, true);
-        clanker.toggleAllowedPairedToken(clankerToken, true);
-        clanker.toggleAllowedPairedToken(degenToken, true);
-        clanker.toggleAllowedPairedToken(higherToken, true);
+        // Set the presale factory as admin on clanker
+        clanker.setAdmin(address(clankerPreSale), true);
 
         // Approve the clanker deployer to spend the clanker
         IERC20(clankerToken).approve(address(clanker), type(uint256).max);
@@ -250,7 +250,8 @@ contract ClankerTest is Test {
             "tt",
             " ",
             "0xcf27a12ab3d2859ad56e3432c958019ea9cc8abb",
-            1000000000 ether
+            1000000000 ether,
+            weth
         );
 
         assertTrue(token != address(0));
@@ -280,10 +281,10 @@ contract ClankerTest is Test {
                 not_proxystudio
             )
         );
-        clanker.setDeprecated(true);
+        clanker.setAdmin(not_proxystudio, true);
 
-        // It didn't change
-        assertEq(clanker.deprecated(), false);
+        // not_proxystudio is still not an admin
+        assertEq(clanker.admins(not_proxystudio), false);
 
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -291,10 +292,31 @@ contract ClankerTest is Test {
                 not_proxystudio
             )
         );
-        clanker.setAdmin(not_proxystudio, true);
+        clankerPreSale.setAdmin(not_proxystudio, true);
 
         // not_proxystudio is still not an admin
-        assertEq(clanker.admins(not_proxystudio), false);
+        assertEq(clankerPreSale.admins(not_proxystudio), false);
+
+        // Can't withdraw
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Ownable.OwnableUnauthorizedAccount.selector,
+                not_proxystudio
+            )
+        );
+        clankerPreSale.withdraw(not_proxystudio, 1 ether);
+
+        // Can't change the clankerFactory
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Ownable.OwnableUnauthorizedAccount.selector,
+                not_proxystudio
+            )
+        );
+        clankerPreSale.setClankerFactory(address(0));
+
+        // It didn't change
+        assertEq(clankerPreSale.clankerFactory(), address(clanker));
 
         vm.stopPrank();
 
@@ -304,14 +326,29 @@ contract ClankerTest is Test {
         clanker.updateLiquidityLocker(address(0));
         assertEq(address(clanker.liquidityLocker()), address(0));
 
-        clanker.setDeprecated(true);
-        assertEq(clanker.deprecated(), true);
-
         clanker.setAdmin(not_proxystudio, true);
         assertEq(clanker.admins(not_proxystudio), true);
 
         clanker.setAdmin(not_proxystudio, false);
         assertEq(clanker.admins(not_proxystudio), false);
+
+        clankerPreSale.setAdmin(not_proxystudio, true);
+        assertEq(clankerPreSale.admins(not_proxystudio), true);
+
+        clankerPreSale.setAdmin(not_proxystudio, false);
+        assertEq(clankerPreSale.admins(not_proxystudio), false);
+
+        clankerPreSale.setClankerFactory(address(0));
+        assertEq(clankerPreSale.clankerFactory(), address(0));
+
+        // Send some eth to the clankerPreSale
+        vm.deal(address(clankerPreSale), 1 ether);
+
+        uint256 balanceBefore = payable(clankerTeamEOA).balance;
+        clankerPreSale.withdraw(clankerTeamEOA, 1 ether);
+        uint256 balanceAfter = payable(clankerTeamEOA).balance;
+
+        assertEq(balanceAfter - balanceBefore, 1 ether);
 
         vm.stopPrank();
     }
@@ -333,33 +370,37 @@ contract ClankerTest is Test {
         // Fee of 10 is invalid (this is 0.1%)
         vm.expectRevert("Invalid tick");
         clanker.deployToken(
-            "proxystudio",
-            "WKND",
-            1 ether,
-            10,
-            bytes32(0),
-            proxystudio,
-            proxystudio_fid,
-            clankerImage,
-            exampleCastHash,
-            poolConfig
+            Clanker.PreSaleTokenConfig({
+                _name: "proxystudio",
+                _symbol: "WKND",
+                _supply: 1 ether,
+                _fee: 10,
+                _salt: bytes32(0),
+                _deployer: proxystudio,
+                _fid: proxystudio_fid,
+                _image: clankerImage,
+                _castHash: exampleCastHash,
+                _poolConfig: poolConfig
+            })
         );
 
         // A token address greater than WETH is invalid
-        vm.expectRevert("Invalid salt");
+        vm.expectRevert(Clanker.Invalid.selector);
         clanker.deployToken(
-            "proxystudio",
-            "WKND",
-            1 ether,
-            100,
-            bytes32(
-                0x0000000000000000000000000000000000000000000000000000000000000002
-            ),
-            proxystudio,
-            proxystudio_fid,
-            clankerImage,
-            exampleCastHash,
-            poolConfig
+            Clanker.PreSaleTokenConfig({
+                _name: "proxystudio",
+                _symbol: "WKND",
+                _supply: 1 ether,
+                _fee: 100,
+                _salt: bytes32(
+                    0x0000000000000000000000000000000000000000000000000000000000000002
+                ),
+                _deployer: proxystudio,
+                _fid: proxystudio_fid,
+                _image: clankerImage,
+                _castHash: exampleCastHash,
+                _poolConfig: poolConfig
+            })
         );
 
         // Make a valid salt...
@@ -370,23 +411,26 @@ contract ClankerTest is Test {
             "WKND",
             clankerImage,
             exampleCastHash,
-            1 ether
+            1 ether,
+            weth
         );
         assertTrue(token < weth);
 
         // Deploy the token without value
         vm.startPrank(clankerTeamEOA);
         clanker.deployToken(
-            "proxystudio",
-            "WKND",
-            1 ether,
-            100,
-            salt,
-            proxystudio,
-            proxystudio_fid,
-            clankerImage,
-            exampleCastHash,
-            poolConfig
+            Clanker.PreSaleTokenConfig({
+                _name: "proxystudio",
+                _symbol: "WKND",
+                _supply: 1 ether,
+                _fee: 100,
+                _salt: salt,
+                _deployer: proxystudio,
+                _fid: proxystudio_fid,
+                _image: clankerImage,
+                _castHash: exampleCastHash,
+                _poolConfig: poolConfig
+            })
         );
 
         // All the token's data is correct
@@ -411,16 +455,18 @@ contract ClankerTest is Test {
         // Cannot deploy again with the same salt
         vm.expectRevert();
         clanker.deployToken(
-            "proxystudio",
-            "WKND",
-            1 ether,
-            100,
-            salt,
-            proxystudio,
-            proxystudio_fid,
-            clankerImage,
-            exampleCastHash,
-            poolConfig
+            Clanker.PreSaleTokenConfig({
+                _name: "proxystudio",
+                _symbol: "WKND",
+                _supply: 1 ether,
+                _fee: 100,
+                _salt: salt,
+                _deployer: proxystudio,
+                _fid: proxystudio_fid,
+                _image: clankerImage,
+                _castHash: exampleCastHash,
+                _poolConfig: poolConfig
+            })
         );
 
         vm.deal(proxystudio, 1 ether);
@@ -433,7 +479,8 @@ contract ClankerTest is Test {
             "WKND",
             clankerImage,
             exampleCastHash,
-            1 ether
+            1 ether,
+            weth
         );
 
         // Add not_proxystudio as an admin so they can deploy
@@ -466,23 +513,22 @@ contract ClankerTest is Test {
 
         // Deploy the token with value
         clanker.deployToken{value: 1 ether}(
-            "proxystudio",
-            "WKND",
-            1 ether,
-            100,
-            newSalt,
-            proxystudio,
-            proxystudio_fid,
-            clankerImage,
-            exampleCastHash,
-            poolConfig
+            Clanker.PreSaleTokenConfig({
+                _name: "proxystudio",
+                _symbol: "WKND",
+                _supply: 1 ether,
+                _fee: 100,
+                _salt: newSalt,
+                _deployer: proxystudio,
+                _fid: proxystudio_fid,
+                _image: clankerImage,
+                _castHash: exampleCastHash,
+                _poolConfig: poolConfig
+            })
         );
 
         vm.stopPrank();
         vm.startPrank(clankerTeamEOA);
-
-        // Cannot deploy after deprecating the factory
-        clanker.setDeprecated(true);
 
         (bytes32 newSalt2, address newToken2) = this.generateSalt(
             proxystudio,
@@ -491,41 +537,28 @@ contract ClankerTest is Test {
             "WKND",
             clankerImage,
             exampleCastHash,
-            1 ether
-        );
-
-        vm.expectRevert(Clanker.Deprecated.selector);
-        clanker.deployToken(
-            "proxystudio",
-            "WKND",
             1 ether,
-            100,
-            newSalt2,
-            proxystudio,
-            proxystudio_fid,
-            clankerImage,
-            exampleCastHash,
-            poolConfig
+            weth
         );
 
-        // Undeprecate the factory
-        clanker.setDeprecated(false);
         vm.warp(block.timestamp + 1);
         vm.roll(block.number + 1);
 
         vm.deal(clankerTeamEOA, 2 ether);
         // Deploy a new token with value
         clanker.deployToken{value: 0.05 ether}(
-            "proxystudio",
-            "WKND",
-            1 ether,
-            100,
-            newSalt2,
-            proxystudio,
-            proxystudio_fid,
-            clankerImage,
-            exampleCastHash,
-            poolConfig
+            Clanker.PreSaleTokenConfig({
+                _name: "proxystudio",
+                _symbol: "WKND",
+                _supply: 1 ether,
+                _fee: 100,
+                _salt: newSalt2,
+                _deployer: proxystudio,
+                _fid: proxystudio_fid,
+                _image: clankerImage,
+                _castHash: exampleCastHash,
+                _poolConfig: poolConfig
+            })
         );
 
         vm.stopPrank();
@@ -548,33 +581,37 @@ contract ClankerTest is Test {
         // Fee of 10 is invalid (this is 0.1%)
         vm.expectRevert("Invalid tick");
         clanker.deployToken(
-            "proxystudio",
-            "WKND",
-            1 ether,
-            10,
-            bytes32(0),
-            proxystudio,
-            proxystudio_fid,
-            clankerImage,
-            exampleCastHash,
-            poolConfig
+            Clanker.PreSaleTokenConfig({
+                _name: "proxystudio",
+                _symbol: "WKND",
+                _supply: 1 ether,
+                _fee: 10,
+                _salt: bytes32(0),
+                _deployer: proxystudio,
+                _fid: proxystudio_fid,
+                _image: clankerImage,
+                _castHash: exampleCastHash,
+                _poolConfig: poolConfig
+            })
         );
 
         // A token address greater than WETH is invalid
-        vm.expectRevert("Invalid salt");
+        vm.expectRevert(Clanker.Invalid.selector);
         clanker.deployToken(
-            "proxystudio",
-            "WKND",
-            1 ether,
-            100,
-            bytes32(
-                0x0000000000000000000000000000000000000000000000000000000000000002
-            ),
-            proxystudio,
-            proxystudio_fid,
-            clankerImage,
-            exampleCastHash,
-            poolConfig
+            Clanker.PreSaleTokenConfig({
+                _name: "proxystudio",
+                _symbol: "WKND",
+                _supply: 1 ether,
+                _fee: 100,
+                _salt: bytes32(
+                    0x0000000000000000000000000000000000000000000000000000000000000002
+                ),
+                _deployer: proxystudio,
+                _fid: proxystudio_fid,
+                _image: clankerImage,
+                _castHash: exampleCastHash,
+                _poolConfig: poolConfig
+            })
         );
 
         // Make a valid salt...
@@ -585,22 +622,25 @@ contract ClankerTest is Test {
             "WKND",
             clankerImage,
             exampleCastHash,
-            1 ether
+            1 ether,
+            clankerToken
         );
 
         // Deploy the token without value
         vm.startPrank(clankerTeamEOA);
         clanker.deployToken{value: 0.1 ether}(
-            "proxystudio",
-            "WKND",
-            1 ether,
-            10000,
-            salt,
-            proxystudio,
-            proxystudio_fid,
-            clankerImage,
-            exampleCastHash,
-            poolConfig
+            Clanker.PreSaleTokenConfig({
+                _name: "proxystudio",
+                _symbol: "WKND",
+                _supply: 1 ether,
+                _fee: 10000,
+                _salt: salt,
+                _deployer: proxystudio,
+                _fid: proxystudio_fid,
+                _image: clankerImage,
+                _castHash: exampleCastHash,
+                _poolConfig: poolConfig
+            })
         );
 
         // All the token's data is correct
@@ -669,33 +709,37 @@ contract ClankerTest is Test {
         // Fee of 10 is invalid (this is 0.1%)
         vm.expectRevert("Invalid tick");
         clanker.deployToken(
-            "proxystudio",
-            "WKND",
-            1 ether,
-            10,
-            bytes32(0),
-            proxystudio,
-            proxystudio_fid,
-            clankerImage,
-            exampleCastHash,
-            poolConfig
+            Clanker.PreSaleTokenConfig({
+                _name: "proxystudio",
+                _symbol: "WKND",
+                _supply: 1 ether,
+                _fee: 10,
+                _salt: bytes32(0),
+                _deployer: proxystudio,
+                _fid: proxystudio_fid,
+                _image: clankerImage,
+                _castHash: exampleCastHash,
+                _poolConfig: poolConfig
+            })
         );
 
         // A token address greater than WETH is invalid
-        vm.expectRevert("Invalid salt");
+        vm.expectRevert(Clanker.Invalid.selector);
         clanker.deployToken(
-            "proxystudio",
-            "WKND",
-            1 ether,
-            100,
-            bytes32(
-                0x0000000000000000000000000000000000000000000000000000000000000002
-            ),
-            proxystudio,
-            proxystudio_fid,
-            clankerImage,
-            exampleCastHash,
-            poolConfig
+            Clanker.PreSaleTokenConfig({
+                _name: "proxystudio",
+                _symbol: "WKND",
+                _supply: 1 ether,
+                _fee: 100,
+                _salt: bytes32(
+                    0x0000000000000000000000000000000000000000000000000000000000000002
+                ),
+                _deployer: proxystudio,
+                _fid: proxystudio_fid,
+                _image: clankerImage,
+                _castHash: exampleCastHash,
+                _poolConfig: poolConfig
+            })
         );
 
         // Make a valid salt...
@@ -706,22 +750,25 @@ contract ClankerTest is Test {
             "WKND",
             clankerImage,
             exampleCastHash,
-            1 ether
+            1 ether,
+            higherToken
         );
 
         // Deploy the token without value
         vm.startPrank(clankerTeamEOA);
         clanker.deployToken{value: 0.1 ether}(
-            "proxystudio",
-            "WKND",
-            1 ether,
-            10000,
-            salt,
-            proxystudio,
-            proxystudio_fid,
-            clankerImage,
-            exampleCastHash,
-            poolConfig
+            Clanker.PreSaleTokenConfig({
+                _name: "proxystudio",
+                _symbol: "WKND",
+                _supply: 1 ether,
+                _fee: 10000,
+                _salt: salt,
+                _deployer: proxystudio,
+                _fid: proxystudio_fid,
+                _image: clankerImage,
+                _castHash: exampleCastHash,
+                _poolConfig: poolConfig
+            })
         );
 
         // All the token's data is correct
@@ -790,33 +837,37 @@ contract ClankerTest is Test {
         // Fee of 10 is invalid (this is 0.1%)
         vm.expectRevert("Invalid tick");
         clanker.deployToken(
-            "proxystudio",
-            "WKND",
-            1 ether,
-            10,
-            bytes32(0),
-            proxystudio,
-            proxystudio_fid,
-            clankerImage,
-            exampleCastHash,
-            poolConfig
+            Clanker.PreSaleTokenConfig({
+                _name: "proxystudio",
+                _symbol: "WKND",
+                _supply: 1 ether,
+                _fee: 10,
+                _salt: bytes32(0),
+                _deployer: proxystudio,
+                _fid: proxystudio_fid,
+                _image: clankerImage,
+                _castHash: exampleCastHash,
+                _poolConfig: poolConfig
+            })
         );
 
         // A token address greater than WETH is invalid
-        vm.expectRevert("Invalid salt");
+        vm.expectRevert(Clanker.Invalid.selector);
         clanker.deployToken(
-            "proxystudio",
-            "WKND",
-            1 ether,
-            100,
-            bytes32(
-                0x0000000000000000000000000000000000000000000000000000000000000002
-            ),
-            proxystudio,
-            proxystudio_fid,
-            clankerImage,
-            exampleCastHash,
-            poolConfig
+            Clanker.PreSaleTokenConfig({
+                _name: "proxystudio",
+                _symbol: "WKND",
+                _supply: 1 ether,
+                _fee: 100,
+                _salt: bytes32(
+                    0x0000000000000000000000000000000000000000000000000000000000000002
+                ),
+                _deployer: proxystudio,
+                _fid: proxystudio_fid,
+                _image: clankerImage,
+                _castHash: exampleCastHash,
+                _poolConfig: poolConfig
+            })
         );
 
         // Make a valid salt...
@@ -827,22 +878,25 @@ contract ClankerTest is Test {
             "WKND",
             clankerImage,
             exampleCastHash,
-            1 ether
+            1 ether,
+            degenToken
         );
 
         // Deploy the token without value
         vm.startPrank(clankerTeamEOA);
         clanker.deployToken{value: 0.1 ether}(
-            "proxystudio",
-            "WKND",
-            1 ether,
-            10000,
-            salt,
-            proxystudio,
-            proxystudio_fid,
-            clankerImage,
-            exampleCastHash,
-            poolConfig
+            Clanker.PreSaleTokenConfig({
+                _name: "proxystudio",
+                _symbol: "WKND",
+                _supply: 1 ether,
+                _fee: 10000,
+                _salt: salt,
+                _deployer: proxystudio,
+                _fid: proxystudio_fid,
+                _image: clankerImage,
+                _castHash: exampleCastHash,
+                _poolConfig: poolConfig
+            })
         );
 
         // All the token's data is correct
@@ -912,7 +966,8 @@ contract ClankerTest is Test {
             "WKND",
             clankerImage,
             exampleCastHash,
-            1 ether
+            1 ether,
+            weth
         );
 
         // Deploy the token
@@ -927,21 +982,22 @@ contract ClankerTest is Test {
             "proxystudio",
             "WKND",
             1 ether,
-            address(liquidityLocker),
             exampleCastHash
         );
 
         clanker.deployToken(
-            "proxystudio",
-            "WKND",
-            1 ether,
-            100,
-            salt,
-            proxystudio,
-            proxystudio_fid,
-            clankerImage,
-            exampleCastHash,
-            poolConfig
+            Clanker.PreSaleTokenConfig({
+                _name: "proxystudio",
+                _symbol: "WKND",
+                _supply: 1 ether,
+                _fee: 100,
+                _salt: salt,
+                _deployer: proxystudio,
+                _fid: proxystudio_fid,
+                _image: clankerImage,
+                _castHash: exampleCastHash,
+                _poolConfig: poolConfig
+            })
         );
 
         vm.stopPrank();
@@ -995,7 +1051,8 @@ contract ClankerTest is Test {
             "WKND",
             clankerImage,
             exampleCastHash,
-            1 ether
+            1 ether,
+            weth
         );
 
         vm.startPrank(clankerTeamEOA);
@@ -1010,22 +1067,23 @@ contract ClankerTest is Test {
             "proxystudio",
             "WKND",
             1 ether,
-            address(liquidityLocker),
             exampleCastHash
         );
 
         vm.deal(clankerTeamEOA, 0.1 ether);
         clanker.deployToken{value: 0.1 ether}(
-            "proxystudio",
-            "WKND",
-            1 ether,
-            100,
-            salt,
-            proxystudio,
-            proxystudio_fid,
-            clankerImage,
-            exampleCastHash,
-            poolConfig
+            Clanker.PreSaleTokenConfig({
+                _name: "proxystudio",
+                _symbol: "WKND",
+                _supply: 1 ether,
+                _fee: 100,
+                _salt: salt,
+                _deployer: proxystudio,
+                _fid: proxystudio_fid,
+                _image: clankerImage,
+                _castHash: exampleCastHash,
+                _poolConfig: poolConfig
+            })
         );
 
         vm.stopPrank();
@@ -1130,7 +1188,8 @@ contract ClankerTest is Test {
             "WKND",
             clankerImage,
             exampleCastHash,
-            1 ether
+            1 ether,
+            weth
         );
 
         vm.startPrank(clankerTeamEOA);
@@ -1144,22 +1203,23 @@ contract ClankerTest is Test {
             "proxystudio",
             "WKND",
             1 ether,
-            address(liquidityLocker),
             exampleCastHash
         );
 
         vm.deal(clankerTeamEOA, 0.1 ether);
         clanker.deployToken{value: 0.1 ether}(
-            "proxystudio",
-            "WKND",
-            1 ether,
-            100,
-            salt,
-            proxystudio,
-            proxystudio_fid,
-            clankerImage,
-            exampleCastHash,
-            poolConfig
+            Clanker.PreSaleTokenConfig({
+                _name: "proxystudio",
+                _symbol: "WKND",
+                _supply: 1 ether,
+                _fee: 100,
+                _salt: salt,
+                _deployer: proxystudio,
+                _fid: proxystudio_fid,
+                _image: clankerImage,
+                _castHash: exampleCastHash,
+                _poolConfig: poolConfig
+            })
         );
 
         vm.stopPrank();
@@ -1198,9 +1258,7 @@ contract ClankerTest is Test {
         clanker.claimRewards(token);
 
         // Try to claim rewards for a token that doesn't exist
-        vm.expectRevert(
-            abi.encodeWithSelector(Clanker.TokenNotFound.selector, address(0))
-        );
+        vm.expectRevert(Clanker.NotFound.selector);
         clanker.claimRewards(address(0));
 
         vm.stopPrank();
@@ -1244,5 +1302,343 @@ contract ClankerTest is Test {
             IERC20(weth).balanceOf(not_proxystudio),
             notProxystudioBalanceBefore
         );
+    }
+
+    function test_createPreSaleToken() public {
+        vm.startPrank(clankerTeamEOA);
+
+        IClankerFactory.PoolConfig memory poolConfig = IClankerFactory
+            .PoolConfig({tick: 1, pairedToken: weth, devBuyFee: 10000});
+
+        // Cannot create with pre sale id 0
+        vm.expectRevert(
+            abi.encodeWithSelector(ClankerPreSale.InvalidConfig.selector)
+        );
+        clankerPreSale.createPreSaleToken(
+            IClankerFactory.PreSaleConfig({
+                bpsAvailable: 9999,
+                bpsSold: 0,
+                endTime: block.timestamp + 1000000000,
+                ethPerBps: 0.000000001 ether,
+                tokenAddress: address(0)
+            }),
+            0,
+            IClankerFactory.PreSaleTokenConfig({
+                _name: "proxystudio",
+                _symbol: "WKND",
+                _supply: 1 ether,
+                _fee: 100,
+                _salt: bytes32(0),
+                _deployer: proxystudio,
+                _fid: proxystudio_fid,
+                _image: clankerImage,
+                _castHash: exampleCastHash,
+                _poolConfig: poolConfig
+            })
+        );
+
+        // Make a new presale token
+        clankerPreSale.createPreSaleToken(
+            IClankerFactory.PreSaleConfig({
+                bpsAvailable: 9999,
+                bpsSold: 0,
+                endTime: block.timestamp + 1000000000,
+                ethPerBps: 0.000000001 ether,
+                tokenAddress: address(0)
+            }),
+            1,
+            IClankerFactory.PreSaleTokenConfig({
+                _name: "proxystudio",
+                _symbol: "WKND",
+                _supply: 1 ether,
+                _fee: 100,
+                _salt: bytes32(0),
+                _deployer: proxystudio,
+                _fid: proxystudio_fid,
+                _image: clankerImage,
+                _castHash: exampleCastHash,
+                _poolConfig: poolConfig
+            })
+        );
+
+        // Cannot create with a pre sale id that already exists
+        vm.expectRevert(ClankerPreSale.InvalidConfig.selector);
+        clankerPreSale.createPreSaleToken(
+            IClankerFactory.PreSaleConfig({
+                bpsAvailable: 9999,
+                bpsSold: 0,
+                endTime: block.timestamp + 1000000000,
+                ethPerBps: 0.0000000069 ether,
+                tokenAddress: address(0)
+            }),
+            1,
+            IClankerFactory.PreSaleTokenConfig({
+                _name: "proxystudio",
+                _symbol: "WKND",
+                _supply: 1 ether,
+                _fee: 100,
+                _salt: bytes32(0),
+                _deployer: proxystudio,
+                _fid: proxystudio_fid,
+                _image: clankerImage,
+                _castHash: exampleCastHash,
+                _poolConfig: poolConfig
+            })
+        );
+
+        // Cannot create with 100% available bps
+        vm.expectRevert(
+            abi.encodeWithSelector(ClankerPreSale.InvalidConfig.selector)
+        );
+        clankerPreSale.createPreSaleToken(
+            IClankerFactory.PreSaleConfig({
+                bpsAvailable: 10000,
+                bpsSold: 0,
+                endTime: block.timestamp + 1000000000,
+                ethPerBps: 0.000000001 ether,
+                tokenAddress: address(0)
+            }),
+            2,
+            IClankerFactory.PreSaleTokenConfig({
+                _name: "proxystudio",
+                _symbol: "WKND",
+                _supply: 1 ether,
+                _fee: 100,
+                _salt: bytes32(0),
+                _deployer: proxystudio,
+                _fid: proxystudio_fid,
+                _image: clankerImage,
+                _castHash: exampleCastHash,
+                _poolConfig: poolConfig
+            })
+        );
+    }
+
+    function test_refundPreSale() public {
+        vm.startPrank(clankerTeamEOA);
+
+        IClankerFactory.PoolConfig memory poolConfig = IClankerFactory
+            .PoolConfig({tick: 1, pairedToken: weth, devBuyFee: 10000});
+
+        // Cannot refund a pre sale that doesn't exist
+        vm.expectRevert(
+            abi.encodeWithSelector(ClankerPreSale.PreSaleNotFound.selector, 0)
+        );
+        clankerPreSale.refundPreSale(0);
+
+        // Make a new presale token
+        clankerPreSale.createPreSaleToken(
+            IClankerFactory.PreSaleConfig({
+                bpsAvailable: 9999,
+                bpsSold: 10000, // already sold out...
+                endTime: block.timestamp + 1000000000,
+                ethPerBps: 0.000000001 ether,
+                tokenAddress: address(0)
+            }),
+            1,
+            IClankerFactory.PreSaleTokenConfig({
+                _name: "proxystudio",
+                _symbol: "WKND",
+                _supply: 1 ether,
+                _fee: 100,
+                _salt: bytes32(0),
+                _deployer: proxystudio,
+                _fid: proxystudio_fid,
+                _image: clankerImage,
+                _castHash: exampleCastHash,
+                _poolConfig: poolConfig
+            })
+        );
+
+        // Try to refund if sold out
+        vm.expectRevert(
+            abi.encodeWithSelector(ClankerPreSale.PreSaleEnded.selector, 1)
+        );
+        clankerPreSale.refundPreSale(1);
+
+        // Cannot refund if not sold out but time hasn't ended yet
+        clankerPreSale.createPreSaleToken(
+            IClankerFactory.PreSaleConfig({
+                bpsAvailable: 9999,
+                bpsSold: 0,
+                endTime: block.timestamp + 1000000000,
+                ethPerBps: 0.000000001 ether,
+                tokenAddress: address(0)
+            }),
+            2,
+            IClankerFactory.PreSaleTokenConfig({
+                _name: "proxystudio",
+                _symbol: "WKND",
+                _supply: 1 ether,
+                _fee: 100,
+                _salt: bytes32(0),
+                _deployer: proxystudio,
+                _fid: proxystudio_fid,
+                _image: clankerImage,
+                _castHash: exampleCastHash,
+                _poolConfig: poolConfig
+            })
+        );
+
+        // Warp forward 1 seconds
+        vm.warp(block.timestamp + 1);
+        // Refund
+        vm.expectRevert(
+            abi.encodeWithSelector(ClankerPreSale.PreSaleNotEnded.selector, 2)
+        );
+        clankerPreSale.refundPreSale(2);
+
+        // Buy into the pre sale
+        vm.deal(not_proxystudio, 1 ether);
+        uint256 not_proxystudio_balance_before = payable(not_proxystudio)
+            .balance;
+
+        vm.startPrank(not_proxystudio);
+        clankerPreSale.buyIntoPreSale{value: 0.000000001 ether}(2);
+        vm.stopPrank();
+
+        // Warp to after the pre sale has ended
+        vm.warp(block.timestamp + 1000000000 + 1);
+
+        // Refund
+        clankerPreSale.refundPreSale(2);
+
+        // Can't refund again
+        vm.expectRevert(
+            abi.encodeWithSelector(ClankerPreSale.AlreadyRefunded.selector, 2)
+        );
+        clankerPreSale.refundPreSale(2);
+
+        // Check the balance
+        assertEq(
+            payable(not_proxystudio).balance,
+            not_proxystudio_balance_before
+        );
+    }
+
+    function test_buyIntoPreSale() public {
+        vm.startPrank(clankerTeamEOA);
+
+        IClankerFactory.PoolConfig memory poolConfig = IClankerFactory
+            .PoolConfig({tick: 1, pairedToken: weth, devBuyFee: 10000});
+
+        // Cannot buy into a pre sale that doesn't exist
+        vm.expectRevert(
+            abi.encodeWithSelector(ClankerPreSale.PreSaleNotFound.selector, 0)
+        );
+        clankerPreSale.buyIntoPreSale(0);
+
+        // Make a new presale token
+        clankerPreSale.createPreSaleToken(
+            IClankerFactory.PreSaleConfig({
+                bpsAvailable: 9999,
+                bpsSold: 0,
+                endTime: block.timestamp + 1000000000,
+                ethPerBps: 0.000000001 ether,
+                tokenAddress: address(0)
+            }),
+            1,
+            IClankerFactory.PreSaleTokenConfig({
+                _name: "proxystudio",
+                _symbol: "WKND",
+                _supply: 1 ether,
+                _fee: 100,
+                _salt: bytes32(0),
+                _deployer: proxystudio,
+                _fid: proxystudio_fid,
+                _image: clankerImage,
+                _castHash: exampleCastHash,
+                _poolConfig: poolConfig
+            })
+        );
+
+        // Warp forward and try to buy after the pre sale has ended
+        vm.warp(block.timestamp + 1000000000 + 1);
+        vm.expectRevert(
+            abi.encodeWithSelector(ClankerPreSale.PreSaleEnded.selector, 1)
+        );
+        clankerPreSale.buyIntoPreSale(1);
+
+        // Can't buy if bpsSold is greater than bpsAvailable
+        clankerPreSale.createPreSaleToken(
+            IClankerFactory.PreSaleConfig({
+                bpsAvailable: 9999,
+                bpsSold: 10000,
+                endTime: block.timestamp + 1000000000,
+                ethPerBps: 0.000000001 ether,
+                tokenAddress: address(0)
+            }),
+            2,
+            IClankerFactory.PreSaleTokenConfig({
+                _name: "proxystudio",
+                _symbol: "WKND",
+                _supply: 1 ether,
+                _fee: 100,
+                _salt: bytes32(0),
+                _deployer: proxystudio,
+                _fid: proxystudio_fid,
+                _image: clankerImage,
+                _castHash: exampleCastHash,
+                _poolConfig: poolConfig
+            })
+        );
+
+        // Buy into the pre sale
+        vm.expectRevert(
+            abi.encodeWithSelector(ClankerPreSale.PreSaleEnded.selector, 2)
+        );
+        clankerPreSale.buyIntoPreSale(2);
+
+        (bytes32 salt, address token) = this.generateSalt(
+            proxystudio,
+            proxystudio_fid,
+            "proxystudio",
+            "WKND",
+            clankerImage,
+            exampleCastHash,
+            1 ether,
+            weth
+        );
+
+        // Make a new presale token
+        clankerPreSale.createPreSaleToken(
+            IClankerFactory.PreSaleConfig({
+                bpsAvailable: 1000,
+                bpsSold: 0,
+                endTime: block.timestamp + 2000000000, // must start later than we are
+                ethPerBps: 0.000000001 ether,
+                tokenAddress: address(0)
+            }),
+            3,
+            IClankerFactory.PreSaleTokenConfig({
+                _name: "proxystudio",
+                _symbol: "WKND",
+                _supply: 1 ether,
+                _fee: 100,
+                _salt: salt,
+                _deployer: proxystudio,
+                _fid: proxystudio_fid,
+                _image: clankerImage,
+                _castHash: exampleCastHash,
+                _poolConfig: poolConfig
+            })
+        );
+
+        // proxystudio balance before
+        uint256 proxystudio_balance_before = payable(proxystudio).balance;
+        // Buy into the presale more than is available
+        vm.deal(not_proxystudio, 1 ether);
+        vm.startPrank(not_proxystudio);
+        clankerPreSale.buyIntoPreSale{value: 0.000000001 ether * 1001}(3);
+        vm.stopPrank();
+
+        // Check the balance (should still be equal because they get no money from the presale)
+        assertEq(payable(proxystudio).balance, proxystudio_balance_before);
+
+        // The clanker contract should not have any money in it
+        assertEq(address(clanker).balance, 0);
+
+        // It should also own no weth
+        assertEq(IERC20(weth).balanceOf(address(clanker)), 0);
     }
 }
