@@ -8,7 +8,7 @@ import {ERC20Votes} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Vo
 import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import {Nonces} from "@openzeppelin/contracts/utils/Nonces.sol";
-import { IERC7802 } from "@contracts-bedrock/src/L2/interfaces/IERC7802.sol";
+import { IERC7802 } from "@contracts-bedrock/interfaces/L2/IERC7802.sol";
 import { Predeploys } from "@contracts-bedrock/src/libraries/Predeploys.sol";
 import { Unauthorized } from "@contracts-bedrock/src/libraries/errors/CommonErrors.sol";
 
@@ -85,7 +85,7 @@ contract ClankerToken is ERC20, ERC20Permit, ERC20Votes, ERC20Burnable, IERC7802
         _mint(_to, _amount);
 
         // Emit the CrosschainMint event included on IERC7802 for tracking token mints associated with cross chain transfers.
-        emit CrosschainMint(_to, _amount);
+        emit CrosschainMint(_to, _amount, msg.sender);
     }
 
     function crosschainBurn(address _from, uint256 _amount) external {
@@ -96,7 +96,7 @@ contract ClankerToken is ERC20, ERC20Permit, ERC20Votes, ERC20Burnable, IERC7802
         _burn(_from, _amount);
 
         // Emit the CrosschainBurn event included on IERC7802 for tracking token burns associated with cross chain transfers.
-        emit CrosschainBurn(_from, _amount);
+        emit CrosschainBurn(_from, _amount, msg.sender);
     }
 
     function supportsInterface(bytes4 _interfaceId) public pure returns (bool) {
