@@ -393,7 +393,7 @@ contract ClankerTest is Test {
                 _supply: 1 ether,
                 _fee: 100,
                 _salt: bytes32(
-                    0x0000000000000000000000000000000000000000000000000000000000000002
+                    0x0000000000000000000000000000000000000000000000000000000000000001
                 ),
                 _deployer: proxystudio,
                 _fid: proxystudio_fid,
@@ -604,7 +604,7 @@ contract ClankerTest is Test {
                 _supply: 1 ether,
                 _fee: 100,
                 _salt: bytes32(
-                    0x0000000000000000000000000000000000000000000000000000000000000002
+                    0x0000000000000000000000000000000000000000000000000000000000000001
                 ),
                 _deployer: proxystudio,
                 _fid: proxystudio_fid,
@@ -732,7 +732,7 @@ contract ClankerTest is Test {
                 _supply: 1 ether,
                 _fee: 100,
                 _salt: bytes32(
-                    0x0000000000000000000000000000000000000000000000000000000000000002
+                    0x0000000000000000000000000000000000000000000000000000000000000001
                 ),
                 _deployer: proxystudio,
                 _fid: proxystudio_fid,
@@ -860,7 +860,7 @@ contract ClankerTest is Test {
                 _supply: 1 ether,
                 _fee: 100,
                 _salt: bytes32(
-                    0x0000000000000000000000000000000000000000000000000000000000000002
+                    0x0000000000000000000000000000000000000000000000000000000000000001
                 ),
                 _deployer: proxystudio,
                 _fid: proxystudio_fid,
@@ -1640,5 +1640,21 @@ contract ClankerTest is Test {
 
         // It should also own no weth
         assertEq(IERC20(weth).balanceOf(address(clanker)), 0);
+
+        // Get the presale purchases
+        IClankerFactory.PreSalePurchase[] memory preSalePurchases = clankerPreSale.getPreSalePurchases(3);
+        assertEq(preSalePurchases.length, 1);
+        assertEq(preSalePurchases[0].user, not_proxystudio);
+        assertEq(preSalePurchases[0].bpsBought, 1000);
+
+        // Get the presale purchases for the user
+        IClankerFactory.PreSalePurchase[] memory preSalePurchasesForUser = clankerPreSale.getPreSalePurchasesForUser(3, not_proxystudio);
+        assertEq(preSalePurchasesForUser.length, 1);
+        assertEq(preSalePurchasesForUser[0].user, not_proxystudio);
+        assertEq(preSalePurchasesForUser[0].bpsBought, 1000);
+
+        // Get it for some other user
+        IClankerFactory.PreSalePurchase[] memory preSalePurchasesForOtherUser = clankerPreSale.getPreSalePurchasesForUser(3, proxystudio);
+        assertEq(preSalePurchasesForOtherUser.length, 0);
     }
 }
